@@ -1,0 +1,8 @@
+[submodule "kernel-patches"]
+	path = kernel-patches
+	url = https://github.com/Polycom-Open-Firmware/tc8-kernel-patches.git
+	branch = main
+[submodule "rootfs"]
+	path = rootfs
+	url = https://github.com/Polycom-Open-Firmware/tc8-rootfs.git
+	branch = main
