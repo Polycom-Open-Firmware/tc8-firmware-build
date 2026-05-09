@@ -20,7 +20,9 @@ DEFAULT_INITRAMFS="${DEFAULT_ROOTFS_DIR}/out/initramfs.cpio.gz"
 
 LINUX=""; PATCHES=""; ROOTFS=""; INITRAMFS=""; PROFILE=""
 AVB_KEY="${TC8_AVB_KEY:-}"
-OUT="$REPO_ROOT/out"
+# OUT defaults to $REPO_ROOT/out/<profile-name>/ once we know the profile.
+# Override with --out=DIR.
+OUT=""
 SKIP_KERNEL=0
 SKIP_ROOTFS=0
 JOBS="$(nproc)"
@@ -86,6 +88,12 @@ fi
 [[ -n "$PROFILE" ]] || { echo "ERROR: --profile= required" >&2; exit 1; }
 [[ -n "$AVB_KEY" ]] || { echo "ERROR: --avb-key= or TC8_AVB_KEY required" >&2; exit 1; }
 [[ -f "$AVB_KEY" ]] || { echo "ERROR: AVB key not found: $AVB_KEY" >&2; exit 1; }
+
+# Default OUT to per-profile subdir so emmc and nfs targets coexist.
+if [[ -z "$OUT" ]]; then
+    profile_name="$(basename "${PROFILE%.env}")"
+    OUT="$REPO_ROOT/out/$profile_name"
+fi
 
 # Build rootfs lazily if needed
 if [[ $SKIP_ROOTFS -ne 1 && ! -e "$ROOTFS" ]]; then
