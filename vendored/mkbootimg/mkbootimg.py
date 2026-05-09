@@ -28,7 +28,10 @@ import os
 import re
 import tempfile
 
-from gki.generate_gki_certificate import generate_gki_certificate
+try:
+    from gki.generate_gki_certificate import generate_gki_certificate
+except ImportError:
+    generate_gki_certificate = None
 
 # Constant and structure definition is in
 # system/tools/mkbootimg/include/bootimg/bootimg.h
