@@ -106,6 +106,18 @@ if [[ $SKIP_ROOTFS -ne 1 && ! -e "$ROOTFS" ]]; then
 fi
 [[ -e "$ROOTFS" ]] || { echo "ERROR: rootfs not found at $ROOTFS" >&2; exit 1; }
 
+# Stamp version info from the three repos so the running image self-identifies.
+# `git describe --dirty` produces e.g. "v0.1.0" on a clean release tag, or
+# "v0.1.0-3-g1234abc-dirty" on an in-progress dev build. The upgrade script
+# uses this to refuse OTA on non-release (dirty/untagged) images by default.
+TC8_FW_VERSION="$(cd "$REPO_ROOT" && git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+TC8_ROOTFS_VERSION="$(cd "$DEFAULT_ROOTFS_DIR" && git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+TC8_PATCHES_VERSION="$(cd "$REPO_ROOT/kernel-patches" && git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+TC8_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TC8_BUILD_HOST="$(hostname)"
+echo "[+] version: $TC8_FW_VERSION  rootfs=$TC8_ROOTFS_VERSION  patches=$TC8_PATCHES_VERSION"
+export TC8_FW_VERSION TC8_ROOTFS_VERSION TC8_PATCHES_VERSION TC8_BUILD_DATE TC8_BUILD_HOST
+
 mkdir -p "$OUT"
 export TC8_AVB_KEY="$AVB_KEY"
 
