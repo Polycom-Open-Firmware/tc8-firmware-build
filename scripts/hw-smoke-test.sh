@@ -168,7 +168,7 @@ done
 
 REMOTE() {
     sshpass -p "$TC8_HOST_PASS" ssh -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
+        -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
         "root@$TC8_HOST_IP" "$@"
 }
 
