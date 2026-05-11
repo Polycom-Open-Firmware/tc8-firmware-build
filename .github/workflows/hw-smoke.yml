@@ -44,8 +44,8 @@ jobs:
           TC8_HOST_PASS: ${{ secrets.TC8_HOST_PASS }}
           TC8_FASTBOOT_HOST: ${{ vars.TC8_FASTBOOT_HOST }}
         run: |
-          chmod +x scripts/hw-smoke-test.sh
-          ./scripts/hw-smoke-test.sh --tag "$TAG"
+          chmod +x smoke/hw-smoke-test.sh
+          ./smoke/hw-smoke-test.sh --tag "$TAG"
 
       - name: Post smoke result to the release
         if: always()

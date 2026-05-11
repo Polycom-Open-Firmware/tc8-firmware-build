@@ -4,10 +4,10 @@
 # summary of which check tripped.
 #
 # USAGE
-#   ./scripts/hw-smoke-test.sh                       # smoke-test the latest tag
-#   ./scripts/hw-smoke-test.sh --tag v0.1.0          # smoke-test a specific release
-#   ./scripts/hw-smoke-test.sh --local               # smoke-test the local build in out/emmc/
-#   ./scripts/hw-smoke-test.sh --keep                # leave panel booted after passing
+#   ./smoke/hw-smoke-test.sh                       # smoke-test the latest tag
+#   ./smoke/hw-smoke-test.sh --tag v0.1.0          # smoke-test a specific release
+#   ./smoke/hw-smoke-test.sh --local               # smoke-test the local build in out/emmc/
+#   ./smoke/hw-smoke-test.sh --keep                # leave panel booted after passing
 #
 # REQUIRED ENV (lab-specific; failing values prevent the script from running)
 #   TC8_HOST_IP        ssh-able address of the panel (default: 192.168.10.229)
@@ -16,7 +16,7 @@
 #                      (default: aibox)
 #   TC8_POE_CYCLE      shell command that hard power-cycles the panel; the
 #                      script will block on it returning before polling for
-#                      fastboot. Default: SW_PASS=$SW_PASS ~/polycom_re/scripts/poe_cycle.sh cycle 1
+#                      fastboot. Default: SW_PASS=$SW_PASS ~/polycom_re/smoke/poe_cycle.sh cycle 1
 #   TC8_WATCHER_RESTART  command to (re)start the brainslug-driven watcher
 #                        that catches u-boot autoboot and types `fastboot 0`
 #                        (default: ssh aibox 'systemctl restart uboot-watch')
@@ -33,7 +33,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 : "${TC8_HOST_IP:=192.168.10.229}"
 : "${TC8_HOST_PASS:=root}"
 : "${TC8_FASTBOOT_HOST:=aibox}"
-: "${TC8_POE_CYCLE:=SW_PASS=${SW_PASS:-} ${REPO_ROOT}/scripts/poe_cycle.sh cycle 1}"
+: "${TC8_POE_CYCLE:=SW_PASS=${SW_PASS:-} ${REPO_ROOT}/smoke/poe_cycle.sh cycle 1}"
 : "${TC8_WATCHER_RESTART:=ssh ${TC8_FASTBOOT_HOST} 'systemctl restart uboot-watch 2>/dev/null || systemd-run --unit=uboot-watch /usr/bin/python3 /tmp/uboot_watch.py'}"
 
 MODE="release"
@@ -97,7 +97,7 @@ echo "[+] staging artifacts on ${TC8_FASTBOOT_HOST}:${REMOTE_DIR}"
 ssh "$TC8_FASTBOOT_HOST" "mkdir -p $REMOTE_DIR"
 scp "$ASSETS"/{boot-emmc.img,dtbo.img,vbmeta-emmc.img,system.img} \
     "$TC8_FASTBOOT_HOST:$REMOTE_DIR/" >/dev/null
-scp "$REPO_ROOT/tools/uboot_watch.py" "$TC8_FASTBOOT_HOST:/tmp/uboot_watch.py" >/dev/null
+scp "$REPO_ROOT/smoke/uboot_watch.py" "$TC8_FASTBOOT_HOST:/tmp/uboot_watch.py" >/dev/null
 
 # Step 3 — get into fastboot. Use plain nohup so the runner user (no
 # privileged systemd-run access) can launch the watcher.

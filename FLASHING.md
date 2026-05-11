@@ -39,7 +39,7 @@ fastboot devices
 # <serial>   Android Fastboot
 ```
 
-For automation, see `tools/uboot_watch.py` — it watches the serial line via the brainslug HTTP UART (ESP32-S3 at `10.99.0.35` on the lab test VLAN), spams `Ctrl-C` through the autoboot window, then sends `fastboot 0\r`.
+For automation, see `smoke/uboot_watch.py` — it watches the serial line via the brainslug HTTP UART (ESP32-S3 at `10.99.0.35` on the lab test VLAN), spams `Ctrl-C` through the autoboot window, then sends `fastboot 0\r`.
 
 ## Flash slot_b
 
