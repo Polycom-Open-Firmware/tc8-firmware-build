@@ -89,16 +89,20 @@ esac
 
 ls -la "$ASSETS"
 
-# Step 2 — drop the staged set into the fastboot driver host.
+# Step 2 — drop the staged set + the brainslug-watcher into the fastboot
+# driver host. Also seed /tmp/uboot_watch.py since the watcher restart
+# command below assumes it lives there.
 REMOTE_DIR="/tmp/tc8-smoke-$$"
 echo "[+] staging artifacts on ${TC8_FASTBOOT_HOST}:${REMOTE_DIR}"
 ssh "$TC8_FASTBOOT_HOST" "mkdir -p $REMOTE_DIR"
 scp "$ASSETS"/{boot-emmc.img,dtbo.img,vbmeta-emmc.img,system.img} \
     "$TC8_FASTBOOT_HOST:$REMOTE_DIR/" >/dev/null
+scp "$REPO_ROOT/tools/uboot_watch.py" "$TC8_FASTBOOT_HOST:/tmp/uboot_watch.py" >/dev/null
 
-# Step 3 — get into fastboot.
+# Step 3 — get into fastboot. Use plain nohup so the runner user (no
+# privileged systemd-run access) can launch the watcher.
 echo "[+] arming u-boot watcher and PoE-cycling panel"
-eval "$TC8_WATCHER_RESTART"
+ssh "$TC8_FASTBOOT_HOST" 'pkill -9 -f uboot_watch.py 2>/dev/null; rm -f /tmp/uboot-watch.state; nohup python3 /tmp/uboot_watch.py >/tmp/uboot-watch.log 2>&1 & disown; sleep 1; pgrep -f uboot_watch.py | head -1'
 eval "$TC8_POE_CYCLE"
 
 # Wait up to ~2 min for fastboot to enumerate
