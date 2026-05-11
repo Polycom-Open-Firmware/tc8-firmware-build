@@ -30,6 +30,7 @@ jobs:
 
       - name: Run hw-smoke-test against the just-published release
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
           # Lab-specific secrets configured in repo settings → Secrets and variables → Actions
           SW_PASS: ${{ secrets.TC8_POE_SWITCH_PASSWORD }}
