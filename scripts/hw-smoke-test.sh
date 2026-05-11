@@ -33,7 +33,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 : "${TC8_HOST_IP:=192.168.10.229}"
 : "${TC8_HOST_PASS:=root}"
 : "${TC8_FASTBOOT_HOST:=aibox}"
-: "${TC8_POE_CYCLE:=SW_PASS=${SW_PASS:-} $HOME/polycom_re/scripts/poe_cycle.sh cycle 1}"
+: "${TC8_POE_CYCLE:=SW_PASS=${SW_PASS:-} ${REPO_ROOT}/scripts/poe_cycle.sh cycle 1}"
 : "${TC8_WATCHER_RESTART:=ssh ${TC8_FASTBOOT_HOST} 'systemctl restart uboot-watch 2>/dev/null || systemd-run --unit=uboot-watch /usr/bin/python3 /tmp/uboot_watch.py'}"
 
 MODE="release"
