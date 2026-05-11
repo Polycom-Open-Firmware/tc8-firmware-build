@@ -1,0 +1,21 @@
+<!doctype html><html><head><style>
+body{margin:0;font-family:sans-serif;background:#fff;color:#000;height:100vh;display:flex;flex-direction:column}
+.bar{display:flex;align-items:center;justify-content:center;font-size:8vh;font-weight:bold;color:#fff}
+.t{background:#d00;height:15vh}
+.b{background:#06d;height:15vh}
+.l{background:#0a0;width:15vw}
+.r{background:#a06;width:15vw}
+.mid{flex:1;display:flex}
+.center{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:5vh}
+.arrow{font-size:25vh;line-height:1}
+.lt{writing-mode:vertical-rl;transform:rotate(180deg)}
+.rt{writing-mode:vertical-rl}
+</style></head><body>
+<div class="bar t">TOP</div>
+<div class="mid">
+  <div class="bar l lt">LEFT</div>
+  <div class="center"><div class="arrow">&#8593;</div><div>this points UP</div></div>
+  <div class="bar r rt">RIGHT</div>
+</div>
+<div class="bar b">BOTTOM</div>
+</body></html>

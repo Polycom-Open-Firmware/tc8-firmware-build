@@ -1,0 +1,87 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;touch-action:none}
+html,body{height:100%;width:100%;overflow:hidden;background:#111;color:#eee;font-family:sans-serif;cursor:none}
+#stage{position:absolute;inset:0}
+.dot{position:absolute;width:120px;height:120px;border-radius:50%;background:rgba(0,200,255,.55);border:3px solid #fff;transform:translate(-50%,-50%);pointer-events:none;font-size:18px;font-weight:bold;display:flex;align-items:center;justify-content:center;color:#000}
+.crosshair{position:absolute;background:rgba(255,255,255,.25);pointer-events:none}
+#hud{position:absolute;top:10px;left:10px;background:#000a;padding:10px 14px;border-radius:6px;font-family:monospace;font-size:18px;z-index:100;white-space:pre}
+#corners div{position:absolute;width:60px;height:60px;background:#ff0;color:#000;font-weight:bold;display:flex;align-items:center;justify-content:center;font-size:24px}
+#tl{top:0;left:0}#tr{top:0;right:0}#bl{bottom:0;left:0}#br{bottom:0;right:0}
+</style></head><body>
+<div id="corners"><div id="tl">TL</div><div id="tr">TR</div><div id="bl">BL</div><div id="br">BR</div></div>
+<div id="stage"></div>
+<div id="hud">touch test - tap anywhere</div>
+<script>
+const stage = document.getElementById('stage');
+const hud = document.getElementById('hud');
+function info() {
+    hud.textContent = `viewport ${innerWidth}x${innerHeight} dpr=${devicePixelRatio}\nactive: ${stage.querySelectorAll('.dot').length}`;
+}
+info();
+addEventListener('resize', info);
+
+const tracked = new Map();
+
+function makeDot(id, x, y) {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    d.style.left = x + 'px';
+    d.style.top = y + 'px';
+    d.textContent = id;
+    stage.appendChild(d);
+    return d;
+}
+
+function update(e) {
+    e.preventDefault();
+    // pointer events cover mouse + touch
+    if (e.type === 'pointerdown' || e.type === 'pointermove') {
+        const id = e.pointerId;
+        let dot = tracked.get(id);
+        if (!dot) {
+            dot = makeDot(id, e.clientX, e.clientY);
+            tracked.set(id, dot);
+        }
+        dot.style.left = e.clientX + 'px';
+        dot.style.top = e.clientY + 'px';
+    } else if (e.type === 'pointerup' || e.type === 'pointercancel' || e.type === 'pointerleave') {
+        const dot = tracked.get(e.pointerId);
+        if (dot) {
+            dot.style.background = 'rgba(255,80,80,.3)';
+            // fade out
+            setTimeout(() => { dot.remove(); tracked.delete(e.pointerId); info(); }, 1500);
+        }
+    }
+    info();
+}
+
+['pointerdown','pointermove','pointerup','pointercancel','pointerleave'].forEach(t => addEventListener(t, update, {passive:false}));
+
+// Also fallback for touch events in case pointer events not fired
+let touchDots = new Map();
+addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+        if (!touchDots.has(t.identifier)) {
+            touchDots.set(t.identifier, makeDot('T'+t.identifier, t.clientX, t.clientY));
+        }
+    }
+    info();
+}, {passive:false});
+addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+        const d = touchDots.get(t.identifier);
+        if (d) { d.style.left = t.clientX+'px'; d.style.top = t.clientY+'px'; }
+    }
+}, {passive:false});
+addEventListener('touchend', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+        const d = touchDots.get(t.identifier);
+        if (d) { setTimeout(()=>{d.remove(); touchDots.delete(t.identifier); info();}, 1500); }
+    }
+}, {passive:false});
+</script>
+</body></html>

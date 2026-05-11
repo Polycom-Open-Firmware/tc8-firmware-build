@@ -1,7 +1,41 @@
-import serial, sys, time, os, datetime
+"""u-boot autoboot interceptor + fastboot trampoline.
+
+Runs standalone on the GitHub Actions self-hosted runner host (aibox) — the
+smoke-test workflow copies this file to /tmp/ and systemd-run's it. Talks
+to the TC8 via the brainslug HTTP UART; no local /dev node needed.
+"""
+import os, sys, time, datetime, json, urllib.request
+
+BRAINSLUG = os.environ.get('BRAINSLUG_HOST', '10.99.0.35')
+BRAINSLUG_PORT = int(os.environ.get('BRAINSLUG_PORT', '1'))
+BASE = f'http://{BRAINSLUG}/uart/{BRAINSLUG_PORT}'
+
+
+class _Ser:
+    """Minimal serial-like shim over the brainslug HTTP API."""
+    def __init__(self):
+        body = json.dumps({'baud': 115200, 'data': 8, 'parity': 0, 'stop': 1,
+                           'tx_gpio': 17, 'rx_gpio': 16}).encode()
+        req = urllib.request.Request(f'{BASE}/config', data=body, method='POST',
+                                     headers={'Content-Type': 'application/json'})
+        urllib.request.urlopen(req, timeout=5).read()
+
+    def read(self, _n=4096):
+        try:
+            with urllib.request.urlopen(f'{BASE}/read', timeout=2) as r:
+                return r.read()
+        except Exception:
+            return b''
+
+    def write(self, data):
+        req = urllib.request.Request(f'{BASE}/write', data=data, method='POST',
+                                     headers={'Content-Type': 'application/octet-stream'})
+        urllib.request.urlopen(req, timeout=2).read()
+
+
 LOG = '/tmp/uboot-watch-' + datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ') + '.log'
 STATE = '/tmp/uboot-watch.state'
-ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=0.05)
+ser = _Ser()
 log = open(LOG, 'wb', buffering=0)
 state = open(STATE, 'w')
 state.write('STARTING\n'); state.flush()

@@ -17,8 +17,8 @@
 #   TC8_POE_CYCLE      shell command that hard power-cycles the panel; the
 #                      script will block on it returning before polling for
 #                      fastboot. Default: SW_PASS=$SW_PASS ~/polycom_re/scripts/poe_cycle.sh cycle 1
-#   TC8_WATCHER_RESTART  command to (re)start whatever pyserial driver
-#                        catches u-boot autoboot and types `fastboot 0`
+#   TC8_WATCHER_RESTART  command to (re)start the brainslug-driven watcher
+#                        that catches u-boot autoboot and types `fastboot 0`
 #                        (default: ssh aibox 'systemctl restart uboot-watch')
 #
 # This script is intentionally lab-tooling-aware: in production CI you'd
