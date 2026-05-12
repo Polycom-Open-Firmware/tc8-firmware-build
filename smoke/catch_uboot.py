@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """catch_uboot.py — drive a TC8 panel into u-boot via the brainslug UART.
 
-Threaded version: starts a Ctrl-C spammer at t=0 so we don't lose the
-autoboot interrupt window to HTTP setup latency. Reader thread watches
-for the `u-boot=> ` prompt with no kernel-boot markers behind it (i.e.,
-panel is genuinely sitting at the prompt, not transient u-boot output
-mid-flight). Once seen, kills the spammer, sends a CR, confirms.
+The slug's HTTP server is single-threaded, so a read-while-spam loop
+starves the spammer at exactly the wrong time. This version spams
+*blindly* for a generous window (covers SPL + u-boot startup + the
+whole bootdelay countdown), then reads to confirm we landed at the
+prompt. If not, retries with a longer spam.
 
 Usage:
   catch_uboot.py --brainslug http://10.99.0.35
 """
-import argparse, sys, time, urllib.request, threading
+import argparse, sys, time, urllib.request
 
 def main():
     ap = argparse.ArgumentParser()
@@ -26,61 +26,53 @@ def main():
                                      headers={'Content-Type':'application/octet-stream'})
         try: urllib.request.urlopen(req, timeout=3).read()
         except Exception: pass
-
     def r():
         try: return urllib.request.urlopen(base+'/read', timeout=3).read()
         except Exception: return b''
 
-    stop = threading.Event()
-    state = {'buf': b'', 'last': b''}
+    # SPL → u-boot startup → bootdelay countdown is ~25–30 s total on this
+    # device. Spam through that whole window so the autoboot prompt never
+    # gets a free `tstc() == 0` moment.
+    spam_total = 35.0
+    burst = b'\x03 \r' * 8
 
-    def spammer():
-        burst = b'\x03 \r' * 8
-        while not stop.is_set():
+    deadline = time.monotonic() + args.total_timeout
+    attempt = 0
+    while time.monotonic() < deadline:
+        attempt += 1
+        print(f'[+] attempt {attempt}: blind ^C spam for {spam_total:.0f}s', flush=True)
+        spam_end = time.monotonic() + spam_total
+        while time.monotonic() < spam_end:
             w(burst)
-            time.sleep(0.015)
+            # No sleep — let HTTP latency be the natural pacer.
+        # Drain any "in-flight" output, then send CR and check for prompt.
+        time.sleep(0.5)
+        # Read up to a few times to flush slug's RX buffer
+        captured = b''
+        for _ in range(4):
+            captured += r()
+            time.sleep(0.1)
+        w(b'\r')
+        time.sleep(0.7)
+        confirm = r()
+        captured += confirm
+        if b'u-boot=> ' in confirm or confirm.rstrip().endswith(b'=>'):
+            print('[+] u-boot prompt caught', flush=True)
+            sys.exit(0)
+        # Look for early-boot markers we should never see if we're at prompt
+        if b'Booting Linux' in captured or b'Starting kernel' in captured:
+            print('[!] autoboot already fired this attempt — retrying', flush=True)
+        else:
+            print(f'[!] no prompt signature — confirm tail: {confirm[-200:]!r}', flush=True)
+        # On the next iteration, the panel will autoboot, Linux will run for
+        # a bit. Sending Ctrl-C does nothing in Linux state, so we wait for
+        # another PoE cycle from the caller… but the caller already cycled.
+        # Easiest recovery: trigger a reboot ourselves via Linux shell.
+        # (Not yet implemented; for now we just retry — the slug spam may
+        # cause the kernel to misbehave and re-reset, looping us back.)
+        spam_total = min(spam_total + 10, 60)
 
-    spam_thread = threading.Thread(target=spammer, daemon=True)
-    spam_thread.start()
-    print('[+] spammer launched', flush=True)
-
-    end = time.monotonic() + args.total_timeout
-    last_kernel = 0.0   # last time we saw "[ N.N]" kernel-log signature
-    while time.monotonic() < end:
-        chunk = r()
-        if chunk:
-            state['buf'] = (state['buf'] + chunk)[-32768:]
-            state['last'] = chunk[-300:]
-            # Kernel boot markers — if any appeared in this chunk, autoboot
-            # already fired this cycle. Note the time so we know to keep
-            # spamming through the NEXT autoboot (panel will reset under
-            # spam pressure if our chars trigger a u-boot panic… unlikely
-            # but harmless).
-            if b'Booting Linux on physical CPU' in chunk or b'Starting kernel' in chunk:
-                last_kernel = time.monotonic()
-            # Prompt detection — look at recent bytes.
-            tail = state['buf'][-300:]
-            if b'u-boot=> ' in tail and time.monotonic() - last_kernel > 1.0:
-                # Stop spam, confirm.
-                stop.set()
-                spam_thread.join(timeout=1)
-                time.sleep(0.4)
-                r()   # drain
-                w(b'\r')
-                time.sleep(0.7)
-                confirm = r()
-                if b'u-boot=> ' in confirm or confirm.rstrip().endswith(b'=>'):
-                    print('[+] u-boot prompt caught', flush=True)
-                    sys.exit(0)
-                # False alarm — back to spamming.
-                stop.clear()
-                spam_thread = threading.Thread(target=spammer, daemon=True)
-                spam_thread.start()
-        time.sleep(0.04)
-
-    stop.set()
-    sys.stderr.write('ERROR: never caught u-boot prompt\n')
-    sys.stderr.write(f'    last tail: {state["last"]!r}\n')
+    sys.stderr.write('ERROR: gave up catching u-boot prompt\n')
     sys.exit(1)
 
 if __name__ == '__main__':
