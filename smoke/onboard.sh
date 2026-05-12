@@ -98,6 +98,26 @@ ub_read() { curl -fsS "$BRAINSLUG/uart/1/read"; }
 ub_cmd()  { local cmd="$1"; local wait_s="${2:-1}"; ub_read >/dev/null; ub "${cmd}"$'\r'; sleep "$wait_s"; ub_read || true; }
 
 catch_uboot() {
+    # If a panel that already runs Linux is on the LAN, ssh-reboot it FIRST.
+    # PoE-cycling the TL-SG108PE via Auto Recovery is unreliable when the
+    # port was recently brought up (the switch enforces a 30 s startup
+    # window before it'll trip again), and spamming Ctrl-C at a live Linux
+    # shell does nothing — we'd run out of catch_uboot's timeout. A clean
+    # reboot from inside the panel reliably drops us into SPL → u-boot.
+    local prior_ips
+    prior_ips="$(ssh "$STAGING_HOST" "ip neigh | grep -v fe80 | awk '/REACHABLE/ {print \$1}'" 2>/dev/null | sort -u)"
+    for ip in $prior_ips; do
+        # Only nudge panels that look like ours (root=/dev/mmcblk2p5)
+        if sshpass -p "$TC8_HOST_PASS" ssh -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=3 \
+                "root@$ip" 'grep -q "root=/dev/mmcblk2p5" /proc/cmdline 2>/dev/null' 2>/dev/null; then
+            echo "[+] panel at $ip is in Linux — issuing reboot"
+            sshpass -p "$TC8_HOST_PASS" ssh -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=3 \
+                "root@$ip" 'systemctl reboot --no-block' 2>/dev/null || true
+        fi
+    done
+
     echo "[+] PoE-cycling port $POE_PORT"
     SW_PASS="$SW_PASS" "$REPO_ROOT/smoke/poe_cycle.sh" cycle "$POE_PORT" >/dev/null
     python3 "$REPO_ROOT/smoke/catch_uboot.py" --brainslug "$BRAINSLUG"

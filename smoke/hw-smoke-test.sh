@@ -59,8 +59,10 @@ case "$MODE" in
         for f in Image imx8mm-tc8.dtb rootfs.img.zst; do
             gh release download "$TAG" --repo Polycom-Open-Firmware/tc8-firmware-build -p "$f"
         done
-        echo "[+] decompressing rootfs.img.zst"
-        zstd -d -q rootfs.img.zst -o rootfs.img && rm rootfs.img.zst
+        # Don't pre-decompress: onboard.sh streams `zstd -dc rootfs.img.zst`
+        # straight into `dd` on the staging host so the 13 GiB decompressed
+        # image never has to materialize anywhere. Pre-decompressing here
+        # eats /tmp on the runner.
         cd "$REPO_ROOT"
         ;;
     local)
