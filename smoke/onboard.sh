@@ -81,47 +81,65 @@ ub_read() {
     curl -fsS "$BRAINSLUG/uart/1/read"
 }
 
-# Drive panel into u-boot. Step 1: spam ^C continuously while PoE-cycling so
-# we catch bootdelay=0 panels that have no autoboot-key window. Step 2: read
-# back, expect a stable `u-boot=>` prompt.
+# Drive panel into u-boot. Sends a batched-Ctrl-C burst that's already
+# 1.5 KB long (every 30 ms), reads back, and detects when the panel has
+# settled at the prompt: 5 consecutive reads where the tail ends in
+# "u-boot=> " and no new "Trying to boot" / "SPL" / "Starting kernel"
+# marker has appeared. Handles bootdelay=0 panels by being able to spam
+# faster than autoboot can fire.
 catch_uboot() {
     echo "[+] starting Ctrl-C spam, PoE-cycling port $POE_PORT"
+    # 32 Ctrl-Cs + CRs in one body — single HTTP POST per ~30ms.
+    local burst
+    burst="$(printf '\x03 \r%.0s' {1..32})"
     (
-        end=$((SECONDS + 90))
+        end=$((SECONDS + 120))
         while (( SECONDS < end )); do
-            ub $'\x03 \r' || true
-            sleep 0.02
+            ub "$burst" 2>/dev/null || true
+            sleep 0.03
         done
     ) &
     local spam_pid=$!
 
     SW_PASS="$SW_PASS" "$REPO_ROOT/smoke/poe_cycle.sh" cycle "$POE_PORT" >/dev/null
 
-    # Watch for prompt
-    local deadline=$((SECONDS + 90))
-    local buf=""
+    local deadline=$((SECONDS + 150))
+    local stable=0 last_tail=""
     while (( SECONDS < deadline )); do
-        buf="${buf}$(ub_read || true)"
-        # keep last 8K only
-        buf="${buf: -8192}"
-        if [[ "$buf" == *"u-boot=> "* && "$buf" != *"Trying to boot"*"u-boot=>"* ]]; then
-            sleep 1   # let any in-flight output settle
+        local chunk
+        chunk="$(ub_read 2>/dev/null || true)"
+        if [[ -n "$chunk" ]]; then
+            # Look only at the last 200 bytes of new data — that's where a
+            # fresh prompt would appear.
+            last_tail="${chunk: -200}"
+            if [[ "$last_tail" == *"u-boot=> "* ]]; then
+                stable=$((stable + 1))
+            else
+                stable=0
+            fi
+        fi
+        if (( stable >= 8 )); then
+            # Prompt looks settled. Stop spamming, confirm with a fresh CR.
             kill "$spam_pid" 2>/dev/null || true
             wait "$spam_pid" 2>/dev/null || true
-            ub_read >/dev/null   # drain
-            ub $'\r' || true
             sleep 0.5
-            local tail
-            tail="$(ub_read || true)"
-            if [[ "$tail" == *"=>"* ]]; then
+            ub_read >/dev/null 2>&1 || true        # drain
+            ub $'\r' 2>/dev/null || true
+            sleep 0.7
+            local confirm
+            confirm="$(ub_read 2>/dev/null || true)"
+            if [[ "$confirm" == *"u-boot=> "* ]]; then
                 echo "[+] u-boot prompt caught"
                 return 0
             fi
+            stable=0    # false alarm; resume waiting
         fi
-        sleep 0.2
+        sleep 0.15
     done
     kill "$spam_pid" 2>/dev/null || true
+    wait "$spam_pid" 2>/dev/null || true
     echo "ERROR: never caught u-boot prompt" >&2
+    echo "    last tail: ${last_tail:-(no recent data)}" >&2
     return 1
 }
 
