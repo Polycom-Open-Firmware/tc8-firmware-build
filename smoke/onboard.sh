@@ -168,7 +168,10 @@ install_env() {
         local probe_resp
         probe_resp="$(ub_read || true)"
         local existing_eth
-        existing_eth="$(echo "$probe_resp" | grep -oE 'ethaddr=([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1 | cut -d= -f2)"
+        # grep returns 1 when env has no ethaddr (the common case after we've
+        # ever stomped the env block) — `|| true` keeps pipefail from killing
+        # us. Same pattern as the UMS-device wait.
+        existing_eth="$({ echo "$probe_resp" | grep -oE 'ethaddr=([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1 | cut -d= -f2; } || true)"
         if [[ -n "$existing_eth" ]]; then
             ETHADDR="$existing_eth"
             echo "[+] preserving existing ethaddr=$ETHADDR"
