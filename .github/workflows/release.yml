@@ -1,7 +1,8 @@
 name: Release build
 
-# Triggers on tag push (v*). Builds boot/system/dtbo/vbmeta + nfs Image+dtb,
-# attaches them as release assets. Runs on a free GitHub-hosted Ubuntu runner.
+# Triggers on tag push (v*). Builds raw `Image`, `imx8mm-tc8.dtb`, and
+# `rootfs.img` (plain ext4, no AVB) and attaches them as release assets.
+# Runs on a free GitHub-hosted Ubuntu runner.
 on:
   push:
     tags:
@@ -27,46 +28,30 @@ jobs:
               git build-essential bison flex bc kmod \
               gcc-aarch64-linux-gnu \
               qemu-user-static binfmt-support \
-              debootstrap rsync mtools \
-              e2fsprogs python3 openssl libssl-dev \
+              debootstrap rsync \
+              e2fsprogs python3 \
               zstd
 
       - name: Bootstrap kernel tree
         run: ./bootstrap.sh
 
-      - name: Fetch AOSP AVB test key
-        run: ./scripts/fetch-avb-test-key.sh
-
       - name: Build emmc target
-        run: |
-          sudo --preserve-env=TC8_AVB_KEY ./build.sh --profile=emmc
-        env:
-          TC8_AVB_KEY: ${{ github.workspace }}/testkey_rsa4096.pem
+        run: sudo --preserve-env=PATH ./build.sh --profile=emmc
 
-      - name: Build nfs target (reuse rootfs)
-        run: |
-          sudo --preserve-env=TC8_AVB_KEY ./build.sh --profile=nfs --skip-rootfs
-        env:
-          TC8_AVB_KEY: ${{ github.workspace }}/testkey_rsa4096.pem
-
-      - name: Compress system.img + assemble release assets
+      - name: Assemble release assets
         run: |
           set -e
           mkdir -p assets
-          cp out/emmc/boot.img        assets/boot-emmc.img
-          cp out/emmc/dtbo.img        assets/dtbo.img
-          cp out/emmc/vbmeta.img      assets/vbmeta-emmc.img
-          cp out/nfs/boot.img         assets/boot-nfs.img
-          cp out/nfs/vbmeta.img       assets/vbmeta-nfs.img
-          cp out/nfs/kernel/Image     assets/Image
-          cp out/nfs/kernel/imx8mm-tc8.dtb assets/imx8mm-tc8.dtb
-          sudo zstd -19 -T0 -q -f out/emmc/system.img -o assets/system.img.zst
+          cp out/emmc/Image             assets/Image
+          cp out/emmc/imx8mm-tc8.dtb    assets/imx8mm-tc8.dtb
+          cp out/emmc/version.env       assets/version.env
+          sudo zstd -19 -T0 -q -f out/emmc/rootfs.img -o assets/rootfs.img.zst
           ( cd assets && sha256sum * > SHA256SUMS )
           ls -lh assets/
 
       - name: Sanity check kernel size under BOOTM_LEN cap
         run: |
-          size=$(stat -c%s out/emmc/kernel/Image)
+          size=$(stat -c%s out/emmc/Image)
           if [ "$size" -gt 33554432 ]; then
               echo "::error::Image is ${size} bytes — exceeds u-boot 32 MiB BOOTM_LEN cap"
               exit 1
@@ -81,14 +66,10 @@ jobs:
           gh release create "$tag" \
               --title "$tag" \
               --generate-notes \
-              assets/boot-emmc.img \
-              assets/boot-nfs.img \
-              assets/dtbo.img \
-              assets/vbmeta-emmc.img \
-              assets/vbmeta-nfs.img \
               assets/Image \
               assets/imx8mm-tc8.dtb \
-              assets/system.img.zst \
+              assets/rootfs.img.zst \
+              assets/version.env \
               assets/SHA256SUMS
 
       - name: Upload artifacts (also kept on the workflow run for debugging)

@@ -40,11 +40,12 @@ jobs:
           TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
           # Lab-specific secrets configured in repo settings → Secrets and variables → Actions
           SW_PASS: ${{ secrets.TC8_POE_SWITCH_PASSWORD }}
-          TC8_HOST_IP: ${{ vars.TC8_HOST_IP }}
+          BRAINSLUG: ${{ vars.BRAINSLUG_URL }}
+          POE_PORT: ${{ vars.TC8_POE_PORT }}
           TC8_HOST_PASS: ${{ secrets.TC8_HOST_PASS }}
           TC8_FASTBOOT_HOST: ${{ vars.TC8_FASTBOOT_HOST }}
         run: |
-          chmod +x smoke/hw-smoke-test.sh
+          chmod +x smoke/hw-smoke-test.sh smoke/onboard.sh smoke/poe_cycle.sh
           ./smoke/hw-smoke-test.sh --tag "$TAG"
 
       - name: Post smoke result to the release

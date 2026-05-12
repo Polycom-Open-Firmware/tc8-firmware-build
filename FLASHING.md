@@ -1,116 +1,153 @@
 # FLASHING.md
 
-How to put a built `emmc` image onto a Polycom TC8 panel via fastboot. Result: panel boots from its own eMMC into a fullscreen Wayland kiosk (cage + cog) loading the configured URL.
+How to take a Polycom TC8 panel from stock (or a previous rev of this
+sideload) onto the current build. Result: panel boots from eMMC into a
+fullscreen Wayland kiosk (cage + cog) loading whatever URL you've
+configured.
 
-## Prereqs
+## How the sideload boots
 
-- A built `out/emmc/` from `./build.sh --profile=emmc` — see BUILDING.md
-- `fastboot` on the host (`apt install android-tools-fastboot`)
-- The panel's USB data port wired to the host USB controller
-- Serial console on the panel's UART (115200 8N1) so you can interrupt u-boot autoboot
+The TC8 ships with stock Android A/B partitions and AVB locked to
+Polycom's signing key — `boota` rejects anything not signed by them, and
+we don't have their key. We bypass AVB entirely by overwriting u-boot's
+environment so the boot path is just raw `mmc read` + `booti`:
 
-## Target layout (Android A/B)
-
-The TC8 ships with an Android A/B partition table on its 16 GB eMMC. Flash slot_b first, validate, mirror to slot_a once you trust it.
-
-| partition       | flashed image | typical use |
-|-----------------|---------------|-------------|
-| `boot_a` / `boot_b`     | `boot.img`     | kernel + dtb + initramfs + cmdline |
-| `dtbo_a` / `dtbo_b`     | `dtbo.img`     | DT overlay |
-| `system_a` / `system_b` | `system.img`   | Debian rootfs |
-| `vbmeta_a` / `vbmeta_b` | `vbmeta.img`   | AVB metadata |
-| `userdata` (`mmcblk2p15`) | not touched    | shared `/data`; preserved across slot updates |
-
-## Get into fastboot
-
-The panel auto-boots into u-boot → kernel quickly. To intercept:
-
-1. Power-cycle the panel (a PoE drop on the panel's port is the cleanest way; physical unplug works too).
-2. Spam `Ctrl-C` + space on the serial console during u-boot's `Hit any key to stop autoboot` window.
-3. At the `=>` prompt:
-   ```
-   => fastboot 0
-   ```
-
-The device exposes its USB gadget as Android Fastboot. Confirm from the host:
-
-```bash
-fastboot devices
-# <serial>   Android Fastboot
+```
+bootcmd = run slotbboot
+slotbboot = mmc dev 1;
+            if test "${boot_slot}" = "bak"; then
+              mmc read 0x40000000 0x20000 0x20000;   # kernel_bak (raw Image)
+              mmc read 0x43400000 0x3a000 0x100;     # dtb_bak    (raw DTB)
+            else
+              mmc read 0x40000000 0x8000  0x20000;   # kernel
+              mmc read 0x43400000 0x38000 0x100;     # dtb
+            fi
+            setenv bootargs "${tc8_bootargs}";
+            booti 0x40000000 - 0x43400000
+tc8_bootargs = console=tty0 console=ttymxc1,115200 ... root=/dev/mmcblk2p5 ...
+boot_slot = main
 ```
 
-For automation, see `smoke/uboot_watch.py` — it watches the serial line via the brainslug HTTP UART (ESP32-S3 at `10.99.0.35` on the lab test VLAN), spams `Ctrl-C` through the autoboot window, then sends `fastboot 0\r`.
+No Android boot.img wrapper, no dtbo overlay, no vbmeta — the kernel and DTB
+sit raw at fixed LBA offsets the bootloader can find without any signature
+check.
 
-## Flash slot_b
+## Partition layout
 
-```bash
-cd out/emmc
-fastboot flash boot_b   boot.img
-fastboot flash dtbo_b   dtbo.img
-fastboot flash vbmeta_b vbmeta.img
-fastboot flash system_b system.img    # ~1 minute
-fastboot set_active b
-fastboot reboot
-```
+We rewrite the eMMC's GPT to a flat layout sized for 13 GB of rootfs:
 
-Order matters: `system_b` last so the AVB chain (`vbmeta_b` → boot/dtbo/system hashes) is consistent at reboot time. After `reboot` the panel comes up on slot_b.
+| # | Name        | Start LBA  | Size   | Use |
+|---|-------------|-----------:|-------:|-----|
+| 1 | `kernel`    | 0x8000     | 48 MiB | raw `Image` (read by slotbboot) |
+| 2 | `kernel_bak`| 0x20000    | 48 MiB | rollback kernel |
+| 3 | `dtb`       | 0x38000    | 4 MiB  | raw `imx8mm-tc8.dtb` |
+| 4 | `dtb_bak`   | 0x3a000    | 4 MiB  | rollback DTB |
+| 5 | `rootfs`    | 0x3c000    | 13 GiB | ext4 rootfs |
+| 6 | `data`      | (rest)     | ~1.6 GiB | persistent `/data` |
 
-## Verify
+Stock partitions (`dtbo_a/b`, `boot_a/b`, `system_a/b`, `vendor_a/b`,
+`vbmeta_a/b`, …) are overwritten on first install. Recover them from
+`/var/lib/vz/dump/tc8-*/` on aibox if you ever need them.
 
-If you baked your pubkey (`TC8_SSH_PUBKEY=…` or `rootfs/authorized_keys`):
+## First install on a panel
 
-```bash
-ssh root@<panel-ip>
-
-# Display
-ls /dev/dri/                                  # card0 (etnaviv) + card1 (mxsfb)
-cat /sys/class/drm/card1-DSI-1/status         # connected
-cat /sys/class/drm/card1-DSI-1/modes          # 800x1280
-
-# Audio
-aplay -l                                      # tas5751-audio playback
-
-# Kiosk + /data
-systemctl is-active kiosk seatd               # active active
-mountpoint /data && echo OK                   # /data is a mountpoint
-
-# Browser
-journalctl _COMM=cog -n 5 --no-pager          # cog: <URL> Loaded successfully.
-```
-
-The kernel cmdline does early DHCP via `IP-Config` so the panel is reachable before systemd-networkd finishes. `/data` (Android `userdata`, ext4 on `mmcblk2p15`) is mounted on demand by `kiosk.service`'s `ExecStartPre`.
-
-If something is wrong, capture serial logs and check `dmesg | grep -iE 'lcdif|samsung-dsim|tas|panel'` — driver-bind status tells you whether a missing kernel config or DT mismatch is at fault.
-
-## Mirror to slot_a
-
-Once slot_b is good and you want a fallback:
+Onboarding is one command:
 
 ```bash
-fastboot flash boot_a   boot.img
-fastboot flash dtbo_a   dtbo.img
-fastboot flash vbmeta_a vbmeta.img
-fastboot flash system_a system.img
-# leave set_active=b; slot_a is the parachute
+smoke/onboard.sh \
+    --brainslug http://10.99.0.35 \
+    --fastboot-host aibox \
+    --poe-port 3 \
+    --artifacts /tmp/tc8-v0.3.0
 ```
 
-## Recovery
+The artifacts directory must contain:
+- `Image`
+- `imx8mm-tc8.dtb`
+- `rootfs.img` or `rootfs.img.zst`
 
-`fastboot set_active a` from u-boot fastboot mode falls back to the previous slot. If u-boot itself is intact, you can always reach fastboot via the autoboot interrupt. If you brick u-boot, NXP SDP recovery (`uuu`) over the device's USB data port is the path back — out of scope for this doc.
+What it does:
+
+1. Spams Ctrl-C at the panel UART via the brainslug while the script
+   PoE-cycles the panel. Catches u-boot even on stock units with
+   `bootdelay=0` (no `Hit any key` window).
+2. `setenv bootdelay 3; saveenv` — gives future intervention a 3-second
+   window.
+3. Writes the flat GPT via `gpt write mmc 1 …`.
+4. `fastboot 0` over UART, then `fastboot flash kernel Image`,
+   `fastboot flash dtb imx8mm-tc8.dtb`, `fastboot flash rootfs rootfs.img`.
+5. Installs the u-boot env (`slotbboot`, `tc8_bootargs`, `bootcmd`,
+   `boot_slot=main`).
+6. `reset` → kernel comes up via `slotbboot`. Waits for ssh, prints the
+   version banner.
+
+The script is idempotent — re-running it reflashes cleanly. Pass
+`--slot bak` to write to the backup slot instead of `main`.
+
+If you just want to push a new rootfs without touching kernel/DTB,
+re-run with the same artifacts but only `rootfs.img` populated — the
+script skips partitions whose source isn't present.
+
+## Updating from running Linux
+
+Once a panel is on this firmware, you don't need to drop to u-boot for
+common edits. `u-boot-tools` is in the rootfs and `/etc/fw_env.config`
+points at the eMMC env block (`/dev/mmcblk2` offset `0x400000`,
+64 KiB). From a root shell on the panel:
+
+```bash
+fw_printenv tc8_bootargs                          # show current cmdline
+fw_setenv tc8_bootargs '<new cmdline>'            # change it
+fw_setenv boot_slot bak                           # boot the rollback kernel next reset
+sync && reboot
+```
+
+To push a new kernel/rootfs without touching u-boot at all:
+
+```bash
+# stage and write to the bak slot, then flip
+scp Image          root@panel:/tmp/
+scp imx8mm-tc8.dtb root@panel:/tmp/
+ssh root@panel '
+  dd if=/tmp/Image          of=/dev/disk/by-partlabel/kernel_bak conv=fsync
+  dd if=/tmp/imx8mm-tc8.dtb of=/dev/disk/by-partlabel/dtb_bak    conv=fsync
+  fw_setenv boot_slot bak
+  sync && reboot'
+```
+
+Roll back by `fw_setenv boot_slot main && reboot`.
+
+## Recovery / unbrick
+
+If a slot's kernel is corrupt:
+
+- The other slot still works. From u-boot: `setenv boot_slot bak; saveenv;
+  reset` (or `main`). With `bootdelay=3` this is a 3-second window after
+  power-on.
+- If both slots are wedged: re-run `onboard.sh` — it catches u-boot via the
+  brainslug regardless of state and re-flashes from scratch.
+
+If u-boot itself is broken (very rare — we don't touch the bootloader
+region): NXP SDP recovery via `uuu` over USB. Out of scope here.
 
 ## End-user access
 
 The image bakes:
 
-- **Composite USB gadget** on the data port — plug into a host and you get three interfaces simultaneously:
-  - **CDC ACM** → `/dev/ttyACM0` (Linux) / "USB Serial Device" (Windows). systemd-getty spawns a login prompt automatically.
-  - **CDC NCM** → `usb0` USB-Ethernet on the host. The panel runs a tiny systemd-networkd DHCP server on `10.55.0.1/24` and leases `.2`–`.5` to the host. ssh to the panel at **`10.55.0.1`** the moment the link comes up — no manual host config required on Linux/Mac. Windows may need to allow the network in its prompt.
-  - **MTP / Portable Device** — `/data` is exported as a Media Transfer Protocol storage by `umtprd` (uMTP-Responder). Drag-and-drop files in any native file manager: Windows Explorer, macOS Finder, GNOME Files, KDE Dolphin. Concurrent with the panel's own use of `/data` because MTP serves through the VFS (no block-level conflict, unlike USB Mass Storage).
-- **ssh** on the LAN (port 22) for hosts that share the panel's wired network.
+- **Composite USB gadget** on the data port — three interfaces:
+  - **CDC ACM** → `/dev/ttyACM0` (Linux) / "USB Serial Device" (Windows).
+    systemd-getty spawns a login prompt automatically.
+  - **CDC NCM** → `usb0` USB-Ethernet on the host. Panel runs DHCP on
+    `10.55.0.1/24` and leases the host `.2`–`.5`. ssh to `10.55.0.1` the
+    moment the link comes up.
+  - **MTP / Portable Device** — `/data` exposed via uMTP-Responder.
+    Drag-and-drop in any native file manager.
+- **ssh** on the wired LAN (port 22).
 
-Default credentials: **`root` / `root`**. Override at build time with `TC8_ROOT_PASSWORD=foo ./build.sh ...` or write a single line to `rootfs/root_password` (gitignored). pubkey auth (via `rootfs/authorized_keys` or `TC8_SSH_PUBKEY=`) wins when present.
-
-The default password applies to: tty1, the panel's UART, the CDC ACM gadget, and ssh (both LAN and the USB-NCM link). *If you ship without changing it, anyone with USB or LAN access can log in as root* — change it for production.
+Default credentials: **`root` / `root`**. Override at build time with
+`TC8_ROOT_PASSWORD=...` or `rootfs/root_password`; pubkey via
+`rootfs/authorized_keys` or `TC8_SSH_PUBKEY=...`. Change them before
+plugging the panel into anything you care about.
 
 ## Configuring the kiosk URL
 
