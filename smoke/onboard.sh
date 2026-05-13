@@ -342,8 +342,13 @@ wait_for_ssh() {
     local tried=""
     local found=""
     local i
+    # Ping-sweep the local /24 in the background each iteration so that a
+    # freshly-DHCP'd panel actually shows up in the staging host's ARP. The
+    # panel ARP'ing the gateway alone doesn't bring its entry into aibox's
+    # cache; we need to send it a packet.
     for i in $(seq 1 90); do
-        sleep 3
+        ssh "$STAGING_HOST" 'for o in $(seq 1 254); do (ping -c1 -W1 192.168.10.$o >/dev/null 2>&1 &); done; wait' 2>/dev/null
+        sleep 2
         local ips
         ips="$(ssh "$STAGING_HOST" "ip neigh | grep -v fe80 | awk '/REACHABLE|STALE/ && \$1 ~ /^[0-9]/ {print \$1}'" 2>/dev/null | sort -u)"
         for ip in $ips; do
