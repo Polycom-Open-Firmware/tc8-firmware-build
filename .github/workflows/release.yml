@@ -72,6 +72,17 @@ jobs:
               assets/version.env \
               assets/SHA256SUMS
 
+      - name: Dispatch hw-smoke against the new release
+        # GitHub's `release: published` event doesn't fire when the release
+        # is created by a workflow using GITHUB_TOKEN (anti-recursion). Bridge
+        # the gap with an explicit workflow_dispatch — same token works because
+        # we're triggering a workflow we own.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh workflow run hw-smoke.yml -f tag="$tag" || true
+
       - name: Upload artifacts (also kept on the workflow run for debugging)
         uses: actions/upload-artifact@v4
         with:
