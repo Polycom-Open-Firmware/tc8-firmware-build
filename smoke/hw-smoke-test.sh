@@ -121,8 +121,10 @@ discover_ip() {
 }
 
 PANEL_IP=""
+# `|| true` because discover_ip exits 1 when this round saw no matching panel
+# (no error — just "keep polling"). set -e would otherwise kill us here.
 for _ in $(seq 1 30); do
-    PANEL_IP="$(discover_ip)"
+    PANEL_IP="$(discover_ip || true)"
     [[ -n "$PANEL_IP" ]] && break
     sleep 2
 done
