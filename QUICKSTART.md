@@ -29,7 +29,10 @@ Android), see [`FLASHING.md`](FLASHING.md).
   ```sh
   TAG=v0.3.0   # or whatever's newest
   mkdir -p /tmp/tc8 && cd /tmp/tc8
-  for f in Image imx8mm-tc8.dtb rootfs.img.zst SHA256SUMS; do
+  # stage2-uboot.bin + bmp_blob.bin = the fully-unlocked deliverable
+  # (chainloaded stage-2 U-Boot 2024.04 + bootsel UX). Optional: omit
+  # them for a plain direct-kernel install.
+  for f in Image imx8mm-tc8.dtb rootfs.img.zst stage2-uboot.bin bmp_blob.bin SHA256SUMS; do
       curl -fLO "https://github.com/Polycom-Open-Firmware/tc8-firmware-build/releases/download/${TAG}/${f}"
   done
   sha256sum -c SHA256SUMS

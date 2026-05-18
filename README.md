@@ -73,11 +73,16 @@ sudo ./build.sh --profile=emmc
 Install onto a panel (automated, via a brainslug probe + UMS):
 
 ```bash
-smoke/onboard.sh --brainslug http://10.99.0.35 \
-                 --staging-host aibox \
-                 --poe-port 3 \
+smoke/onboard.sh --brainslug http://<brainslug-ip> \
+                 --staging-host <ssh-alias> \
+                 --poe-port <panel-poe-port> \
                  --artifacts out/emmc
 ```
+
+> ⚠ `--poe-port`/`--brainslug` are environment-specific placeholders —
+> a wrong PoE port can power-cycle/reflash the wrong device on a shared
+> switch. See [FLASHING.md](FLASHING.md) for the safety note and the
+> optional unlock-FW (`stage2-uboot.bin`/`bmp_blob.bin`) artifacts.
 
 Or follow [QUICKSTART.md](QUICKSTART.md) for a manual, no-brainslug recipe
 that takes about 15 minutes with just a USB-C cable and a serial UART

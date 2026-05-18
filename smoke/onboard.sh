@@ -93,6 +93,20 @@ for f in "$KERNEL" "$DTB"; do
     [[ -f "$f" ]] || { echo "ERROR: missing $f" >&2; exit 1; }
 done
 
+# Unlock-FW stage-2 (optional). If both present, onboard installs the
+# custom chainloaded U-Boot 2024.04 (bootsel logo/gesture/UMS/SDP) into
+# the reserved pre-GPT gap and points stock bootcmd at it. If absent,
+# onboard does a plain direct-kernel install (bootcmd='run slotbboot').
+STAGE2="$ARTIFACTS/stage2-uboot.bin"     # = polycom-uboot vendored/uboot-imx/u-boot.bin
+BMPBLOB="$ARTIFACTS/bmp_blob.bin"        # = polycom-uboot targets/.../logos/bmp_blob.bin
+STAGE2_ENABLED=0
+if [[ -f "$STAGE2" && -f "$BMPBLOB" ]]; then
+    STAGE2_ENABLED=1
+    echo "[+] unlock-FW stage-2 present — will install chainloaded U-Boot 2024.04"
+else
+    echo "[!] no stage2-uboot.bin/bmp_blob.bin in $ARTIFACTS — plain direct-kernel install (no unlock FW)"
+fi
+
 ub()      { curl -fsS -X POST --data-binary "$1" -H "Content-Type: application/octet-stream" "$BRAINSLUG/uart/1/write" >/dev/null; }
 ub_read() { curl -fsS "$BRAINSLUG/uart/1/read"; }
 ub_cmd()  { local cmd="$1"; local wait_s="${2:-1}"; ub_read >/dev/null; ub "${cmd}"$'\r'; sleep "$wait_s"; ub_read || true; }
@@ -120,7 +134,9 @@ catch_uboot() {
 
     echo "[+] PoE-cycling port $POE_PORT"
     SW_PASS="$SW_PASS" "$REPO_ROOT/smoke/poe_cycle.sh" cycle "$POE_PORT" >/dev/null
-    python3 "$REPO_ROOT/smoke/catch_uboot.py" --brainslug "$BRAINSLUG"
+    # $PYTHON defaults to plain `python3` (normal hosts). Override e.g.
+    # PYTHON="uv run python3" in sandboxed envs that proxy python.
+    ${PYTHON:-python3} "$REPO_ROOT/smoke/catch_uboot.py" --brainslug "$BRAINSLUG"
 }
 
 install_env() {
@@ -186,7 +202,21 @@ install_env() {
     [[ -n "$ETHADDR" ]] && ub_cmd "setenv ethaddr ${ETHADDR}" 0.5 >/dev/null
     ub_cmd "setenv tc8_bootargs '${bootargs}'" 0.5 >/dev/null
     ub_cmd "setenv slotbboot '${sb}'" 0.5 >/dev/null
-    ub_cmd "setenv bootcmd 'run slotbboot'" 0.5 >/dev/null
+    # Stage-2-always-in-charge: stock bootcmd chainloads our custom
+    # U-Boot 2024.04 from the reserved pre-GPT gap (LBA 0x4000). The
+    # dcache-off triplet is the MMU fix (stock `go` keeps its page
+    # tables). Self-persists: Polycom u-boot `saveenv`s every boot
+    # (verified: 2 bare resets -> 2 autonomous stage-2 banners).
+    # `slotbboot` stays defined as the RECOVERY macro — to revert to
+    # direct kernel boot: `setenv bootcmd 'run slotbboot'; saveenv`.
+    # Stage-2 then runs its own bootcmd (bootsel -> mmcboot).
+    if [[ "$STAGE2_ENABLED" -eq 1 ]]; then
+        local cl='mmc dev 1\; mmc read 0x40200000 0x4000 0x830\; '
+        cl+='dcache flush\; icache off\; dcache off\; go 0x40200000'
+        ub_cmd "setenv bootcmd '${cl}'" 0.5 >/dev/null
+    else
+        ub_cmd "setenv bootcmd 'run slotbboot'" 0.5 >/dev/null
+    fi
     ub_cmd "saveenv" 3
 }
 
@@ -380,6 +410,27 @@ wait_for_ssh() {
     return 2
 }
 
+write_stage2_ums() {
+    # Raw-dd the unlock-FW stage-2 into the RESERVED pre-GPT gap (bytes
+    # 8-16 MiB, untouched by the flat GPT whose first partition is at
+    # 16 MiB). u-boot.bin -> LBA 0x4000 (16384); BMP blob -> LBA 0x5000
+    # (20480). Stock bootcmd (install_env) chainloads `mmc read ...
+    # 0x4000 0x830; go`. UMS is still open so $UMS_DEV is the whole eMMC.
+    local s2sz s2nb blsz blnb rb
+    s2sz=$(stat -c%s "$STAGE2"); s2nb=$(( (s2sz+511)/512 ))
+    blsz=$(stat -c%s "$BMPBLOB"); blnb=$(( (blsz+511)/512 ))
+    echo "[+] stage-2 u-boot.bin ($s2sz B) -> $UMS_DEV LBA 0x4000"
+    cat "$STAGE2"  | ssh "$STAGING_HOST" "dd of=$UMS_DEV bs=512 seek=16384 conv=fsync status=none"
+    echo "[+] bmp blob ($blsz B) -> $UMS_DEV LBA 0x5000"
+    cat "$BMPBLOB" | ssh "$STAGING_HOST" "dd of=$UMS_DEV bs=512 seek=20480 conv=fsync status=none"
+    ssh "$STAGING_HOST" "sync"
+    rb=$(ssh "$STAGING_HOST" "dd if=$UMS_DEV bs=512 skip=16384 count=$s2nb 2>/dev/null | head -c $s2sz | md5sum | cut -d' ' -f1")
+    [[ "$rb" == "$(md5sum "$STAGE2" | cut -d' ' -f1)" ]] || { echo "ERROR: stage-2 readback mismatch" >&2; exit 1; }
+    rb=$(ssh "$STAGING_HOST" "dd if=$UMS_DEV bs=512 skip=20480 count=$blnb 2>/dev/null | head -c $blsz | md5sum | cut -d' ' -f1")
+    [[ "$rb" == "$(md5sum "$BMPBLOB" | cut -d' ' -f1)" ]] || { echo "ERROR: bmp blob readback mismatch" >&2; exit 1; }
+    echo "[+] unlock-FW stage-2 + blob verified in the reserved gap"
+}
+
 # ---- main ----
 catch_uboot
 install_env
@@ -389,6 +440,7 @@ if [[ "$NO_REPARTITION" -ne 1 ]]; then
     write_gpt_ums
 fi
 write_partitions_ums
+[[ "$STAGE2_ENABLED" -eq 1 ]] && write_stage2_ums
 ums_close
 
 echo "[+] reset"

@@ -49,22 +49,66 @@ Stock partitions (`dtbo_a/b`, `boot_a/b`, `system_a/b`, `vendor_a/b`,
 `vbmeta_a/b`, …) are overwritten on first install. Recover them from
 `/var/lib/vz/dump/tc8-*/` on aibox if you ever need them.
 
+### ⛔ RESERVED pre-GPT region — DO NOT ALLOCATE (LBA 0x4000–0x8000)
+
+The custom **chainloaded stage-2 u-boot** (`polycom-uboot`, the unlock
+FW with the bootsel logo/gesture UX) and its BMP asset blob live in the
+**unallocated gap between the env and the first GPT partition**:
+
+| LBA | Bytes | Contents |
+|----:|------:|----------|
+| 0x0–0x2000 | 0–4 MiB | HAB-signed SPL/ATF/OPTEE/u-boot — UUU only |
+| 0x2000 | 0x400000 | u-boot env (4 KiB) |
+| 0x2008–0x4000 | 0x401000– | free (optional redundant env) |
+| **0x4000** | **0x800000** | **stage-2 `u-boot.bin`** (chainload: `mmc read … 0x4000 0x830`) |
+| **0x5000** | **0xA00000** | **bootsel BMP blob** (slots 0x5000/0x5200/0x5400/0x5600) |
+| 0x5800–0x8000 | | free headroom |
+| 0x8000+ | | flat GPT (`kernel` …) |
+
+**Contract — the flat-GPT generator MUST keep the first partition at
+`Start LBA ≥ 0x8000` and MUST NOT create or let the rootfs/installer
+reclaim anything in `0x4000–0x8000`.** Earlier the stage-2 lived in
+`kernel_bak` (LBA 0x20000) — that is the *load-bearing rollback-kernel
+partition* (`slotbboot` raw-reads + `booti`s it on `boot_slot=bak`), so
+it was never safe; this reserved gap is the on-eMMC contract.
+
 ## First install on a panel
 
 Onboarding is one command:
 
 ```bash
 smoke/onboard.sh \
-    --brainslug http://10.99.0.35 \
-    --staging-host aibox \
-    --poe-port 3 \
+    --brainslug http://<brainslug-ip> \
+    --staging-host <ssh-alias> \
+    --poe-port <panel-poe-port> \
     --artifacts /tmp/tc8-v0.3.0
 ```
+
+> ⚠ **`--poe-port` and `--brainslug` are environment-specific.**
+> `onboard.sh` PoE-cycles `--poe-port` and drives whatever panel is on
+> it. On a shared PoE switch a wrong port number will power-cycle (and,
+> with matching artifacts, could reflash) the wrong device. Confirm the
+> port your target panel is on, and that its brainslug IP is reachable,
+> before running. (Do not copy a port/IP from an example — they are
+> placeholders.)
 
 The artifacts directory must contain:
 - `Image`
 - `imx8mm-tc8.dtb`
 - `rootfs.img` or `rootfs.img.zst`
+
+For the **fully-unlocked deliverable** (chainloaded stage-2 U-Boot
+2024.04 with the bootsel logo/gesture/UMS UX), also include:
+- `stage2-uboot.bin` — `polycom-uboot` `vendored/uboot-imx/u-boot.bin`
+  (built `scripts/build.sh tc8-proline_exec`)
+- `bmp_blob.bin` — `polycom-uboot`
+  `targets/tc8-proline_exec/logos/bmp_blob.bin`
+
+If both are present `onboard.sh` installs them into the reserved
+pre-GPT gap (LBA 0x4000/0x5000) and points stock `bootcmd` at the
+chainload; if absent it does a plain direct-kernel install. Verified
+end-to-end on TC1 2026-05-18 (catch→env→UMS GPT/kernel/dtb/rootfs→
+stage-2 md5-verified→reboot→Debian on the LAN, `root=/dev/mmcblk2p5`).
 
 The staging host (`--staging-host`) must be ssh-reachable and have these
 packages installed: `gdisk`, `util-linux` (provides `blockdev`,
