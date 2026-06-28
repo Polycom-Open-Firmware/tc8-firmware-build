@@ -25,6 +25,5 @@ cat <<EOF
 [OK] bootstrap complete.
 
 Next:
-    export TC8_AVB_KEY=/path/to/testkey_rsa4096.pem
     ./build.sh --profile=emmc
 EOF

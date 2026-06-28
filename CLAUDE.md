@@ -31,12 +31,9 @@ TC8 Debian rootfs builder is separate → `../re/release-rootfs/`.
   CI enforces.
 - **Never hand-edit `linux-6.6/`; never disable a `.patch`** to dodge an
   apply conflict — regen from a clean tree (2026-05-19 postmortem: a
-  `.patch.disabled` shipped a no-display kernel). `bootstrap.sh` refuses
-  a non-pristine tree; `build.sh` fails on dirty/off-pin submodules
-  (`ALLOW_DIRTY_LINUX=1` / `ALLOW_DIRTY_SUBMODULES=1` exist — don't use
-  casually).
+  `.patch.disabled` shipped a no-display kernel).
 
-Related: **[FLASHING.md](FLASHING.md)** (onboard.sh, partitions, stage-2
+Related: **[FLASHING.md](FLASHING.md)** (partitions, stage-2
 chainload), **[QUICKSTART.md](QUICKSTART.md)** (manual recipe),
 **[NETBOOT.md](NETBOOT.md)** (TFTP/NFS). Deep detail →
 **[BUILDING.md](BUILDING.md)**. Cross-repo / provenance / tc8 LXC env →

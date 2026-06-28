@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # images/rootfs.sh — build a plain ext4 rootfs.img from a rootfs tarball or
-# directory. No AVB footer — the TC8 boot path is raw `mmc read` + `booti`,
-# so there's nothing to verify against.
+# directory. No AVB footer: this raw rootfs.img is the **dev/lab** path
+# (booti / flat-layout `rootfs` partition). The production path ships the
+# sparse `rootfs.simg` flashed to `userdata` instead.
 #
 # USAGE
 #   images/rootfs.sh --rootfs=PATH [--out=FILE] [--image-size=BYTES]
@@ -14,7 +15,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ROOTFS=""
 OUT=""
-# Default size: 13 GiB. Matches the new flat-layout `rootfs` partition.
+# Default size: 13 GiB. Matches the dev-path flat-layout `rootfs` partition.
 # Anything between ~1 GiB (just the base Debian) and 13 GiB works on the
 # target. Pick smaller for faster fastboot pushes; bigger for headroom.
 IMAGE_SIZE="13958643712"

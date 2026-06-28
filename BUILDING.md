@@ -101,9 +101,8 @@ fastboot gadget (one-time serial bootstrap on a fresh unit, or the 4-finger
 gesture once enrolled), then `flashos` writes `boot_a`/`dtbo_a`/`vbmeta_a` +
 sparse `rootfs.simg` → `userdata`, `set_active`, and reboots via `boota`.
 
-A direct-write **dev path** (UMS + flat GPT + `booti` via
-`smoke/onboard.sh`, and the manual [QUICKSTART.md](QUICKSTART.md) recipe)
-remains for bring-up.
+A direct-write **dev path** (UMS + flat GPT + `booti`, with a manual
+[QUICKSTART.md](QUICKSTART.md) recipe) remains for bring-up.
 
 ## 6. Iterate
 

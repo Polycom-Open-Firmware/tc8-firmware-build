@@ -46,8 +46,8 @@ WebUSB tool): a one-time **enroll** lands our stage-2 U-Boot, then
 `rootfs.simg` → `userdata`, `set_active`, and reboots into Debian via
 `boota`. See [FLASHING.md](FLASHING.md) for the full flow.
 
-> A direct-write **dev/lab path** (UMS + flat GPT + `booti`, via
-> `smoke/onboard.sh`) and **netboot** (TFTP+NFS) also exist — see
+> A direct-write **dev/lab path** (UMS + flat GPT + `booti`) and
+> **netboot** (TFTP+NFS) also exist — see
 > [FLASHING.md](FLASHING.md#dev-path--direct-write-via-ums) and
 > [NETBOOT.md](NETBOOT.md). u-boot env edits from running Linux still use
 > `fw_setenv` (the rootfs ships `u-boot-tools` + `/etc/fw_env.config`).
@@ -70,9 +70,9 @@ profiles/                emmc.env, nfs.env — per-target kernel cmdline
 kernel/                  kernel/build.sh + tc8.config (config fragment)
 kernel-patches/          submodule: tc8 patch series for vanilla 6.6
 rootfs/                  submodule: Debian rootfs builder + chroot-setup
-images/                  rootfs.sh (plain ext4) + cmdlines.sh
-smoke/                   onboard.sh (dev-path direct-write) + hw-smoke-test.sh
-.github/workflows/       release.yml, hw-smoke.yml
+images/                  rootfs.sh (plain ext4)
+smoke/                   catch_uboot.py, uboot_watch.py, poe_cycle.sh, orient.html (dev-path bring-up helpers)
+.github/workflows/       release.yml
 ```
 
 `kernel-patches` and `rootfs` are sibling repos under the same org; pull
@@ -100,9 +100,8 @@ separate WebUSB tool — no host `fastboot` binary, no driver install):
    reboots into Debian via `boota`.
 
 See [FLASHING.md](FLASHING.md) for the full provisioning flow. A
-direct-write **dev/lab path** (UMS + flat GPT + `booti` via
-`smoke/onboard.sh`, and the manual [QUICKSTART.md](QUICKSTART.md) recipe)
-also exists for bring-up.
+direct-write **dev/lab path** (UMS + flat GPT + `booti`, with a manual
+[QUICKSTART.md](QUICKSTART.md) recipe) also exists for bring-up.
 
 Default credentials baked into the image: **`root` / `root`** (works on
 tty, USB CDC ACM, and ssh — change before plugging into anything you

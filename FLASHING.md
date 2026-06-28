@@ -71,11 +71,10 @@ The browser fetches these from an artifact manifest pointing at the
 Everything below is the **bring-up / lab path**, distinct from the
 production `boota` provisioning above. Instead of the slot image it writes
 a **flat GPT** and has u-boot raw-read the kernel + DTB and `booti` them
-(no Android wrapper, no AVB). `smoke/onboard.sh` automates it over a
-network UART probe + UMS; [QUICKSTART.md](QUICKSTART.md) is the same flow by hand.
-It still works and is handy for kernel/rootfs iteration, but a panel
-installed this way uses `root=/dev/mmcblk2p5` and the `slotbboot`/`booti`
-env — not `boota`.
+(no Android wrapper, no AVB). [QUICKSTART.md](QUICKSTART.md) is the
+copy-paste recipe by hand, over a serial UART + UMS. It still works and
+is handy for kernel/rootfs iteration, but a panel installed this way uses
+`root=/dev/mmcblk2p5` and the `slotbboot`/`booti` env — not `boota`.
 
 ### Partition layout (flat / dev path)
 
@@ -118,84 +117,62 @@ reclaim anything in `0x4000–0x8000`.** Earlier the stage-2 lived in
 partition* (`slotbboot` raw-reads + `booti`s it on `boot_slot=bak`), so
 it was never safe; this reserved gap is the on-eMMC contract.
 
-### First install (onboard.sh, dev path)
+### First install (dev path)
 
-Onboarding the flat-layout install is one command:
+The flat-layout install is done by hand over UMS —
+[QUICKSTART.md](QUICKSTART.md) is the full copy-paste recipe (catch
+u-boot → `ums 0 mmc 1` → `sgdisk` a flat GPT → `dd` kernel/DTB/rootfs →
+set the `slotbboot`/`bootcmd` env → `reset`).
 
-```bash
-smoke/onboard.sh \
-    --uart-probe http://<uart-probe-ip> \
-    --staging-host <ssh-alias> \
-    --poe-port <panel-poe-port> \
-    --artifacts /tmp/tc8-v0.3.0
-```
-
-> ⚠ **`--poe-port` and `--uart-probe` are environment-specific.**
-> `onboard.sh` PoE-cycles `--poe-port` and drives whatever panel is on
-> it. On a shared PoE switch a wrong port number will power-cycle (and,
-> with matching artifacts, could reflash) the wrong device. Confirm the
-> port your target panel is on, and that its UART probe IP is reachable,
-> before running. (Do not copy a port/IP from an example — they are
-> placeholders.)
-
-The artifacts directory must contain:
+The artifacts you write are:
 - `Image`
 - `imx8mm-tc8.dtb`
 - `rootfs.img` or `rootfs.img.zst`
 
 For the **fully-unlocked deliverable** (chainloaded stage-2 U-Boot
-2024.04 with the bootsel logo/gesture/UMS UX), also include:
+2024.04 with the bootsel logo/gesture/UMS UX), also stage:
 - `stage2-uboot.bin` — `polycom-uboot` `vendored/uboot-imx/u-boot.bin`
   (built `scripts/build.sh tc8-proline_exec`)
 - `bmp_blob.bin` — `polycom-uboot`
   `targets/tc8-proline_exec/logos/bmp_blob.bin`
 
-If both are present `onboard.sh` installs them into the reserved
-pre-GPT gap (LBA 0x4000/0x5000) and points stock `bootcmd` at the
-chainload; if absent it does a plain direct-kernel install. Verified
-end-to-end on TC1 2026-05-18 (catch→env→UMS GPT/kernel/dtb/rootfs→
-stage-2 md5-verified→reboot→Debian on the LAN, `root=/dev/mmcblk2p5`).
+These go into the reserved pre-GPT gap (LBA 0x4000/0x5000) with stock
+`bootcmd` pointed at the chainload; without them it's a plain
+direct-kernel install. Verified end-to-end on TC1 2026-05-18
+(catch→env→UMS GPT/kernel/dtb/rootfs→stage-2 md5-verified→reboot→Debian
+on the LAN, `root=/dev/mmcblk2p5`).
 
-The staging host (`--staging-host`) must be ssh-reachable and have these
-packages installed: `gdisk`, `util-linux` (provides `blockdev`,
-`udevadm`), `zstd`, `dd`. Root or passwordless sudo is needed so the
-script can write to a block device.
+The host you run UMS against needs `gdisk`, `util-linux` (provides
+`blockdev`, `udevadm`), `zstd`, and `dd`, plus root or passwordless sudo
+to write the block device.
 
-What it does:
+How the flow works:
 
-1. Spams Ctrl-C at the panel UART via the network UART probe while the script
-   PoE-cycles the panel. Catches u-boot even on stock units with
-   `bootdelay=0` (no `Hit any key` window).
-2. Installs our u-boot env vars (`slotbboot`, `tc8_bootargs`, `bootcmd`,
+1. Catch u-boot. Stock units ship `bootdelay=0` (no `Hit any key`
+   window), so you mash Ctrl-C through power-on — see QUICKSTART.
+2. Install our u-boot env vars (`slotbboot`, `tc8_bootargs`, `bootcmd`,
    `boot_slot=main`, `bootdelay=3`) and `saveenv`. Done first so the env
    survives anything that happens during the disk-write phase.
 3. `ums 0 mmc 1` over UART — the panel exposes the eMMC user area as a
-   USB Mass Storage gadget on the staging host. u-boot itself lives on
-   the eMMC's boot HW partitions, which `ums` does *not* expose, so the
+   USB Mass Storage gadget on the host. u-boot itself lives on the
+   eMMC's boot HW partitions, which `ums` does *not* expose, so the
    bootloader is unclobberable.
-4. From the staging host: detects the new `/dev/sdX`, `sgdisk`s a flat
-   GPT (kernel/kernel_bak/dtb/dtb_bak/rootfs/data), and stream-writes
-   `Image` / `imx8mm-tc8.dtb` / `rootfs.img.zst` straight into the right
-   partitions with `dd conv=fsync`. The runner pipes the rootfs through
-   `zstd -dc` so the 14 GiB decompressed image never has to land on disk
-   on either side.
+4. From the host: `sgdisk` a flat GPT
+   (kernel/kernel_bak/dtb/dtb_bak/rootfs/data) and stream-write `Image` /
+   `imx8mm-tc8.dtb` / `rootfs.img.zst` straight into the right partitions
+   with `dd conv=fsync` (pipe the rootfs through `zstd -dc` so the 14 GiB
+   decompressed image never has to land on disk).
 5. Ctrl-C the UART to leave `ums`, then `reset`.
 6. The panel reboots, `slotbboot` raw-reads our kernel + DTB from their
-   partitions, and Linux comes up. Waits for ssh on the LAN, confirms
-   it's the right panel by matching `root=/dev/mmcblk2p5` in
-   `/proc/cmdline`, prints the version banner.
+   partitions, and Linux comes up with `root=/dev/mmcblk2p5`.
 
 Why UMS instead of fastboot: stock TC8 u-boot has neither `gpt write` nor
 fastboot's `oem partition`, so neither can install a fresh partition
 table. UMS sidesteps both by handing the eMMC to the host and letting
 ordinary block-device tools (`sgdisk`, `dd`) do the work.
 
-The script is idempotent — re-running it reflashes cleanly. Pass
-`--slot bak` to write to the backup slot instead of `main`.
-
-If you just want to push a new rootfs without touching kernel/DTB,
-re-run with the same artifacts but only `rootfs.img` populated — the
-script skips partitions whose source isn't present.
+To push only a new rootfs without touching kernel/DTB, write just the
+`rootfs` partition and leave the others alone.
 
 ### Updating from running Linux (dev path)
 
@@ -233,8 +210,9 @@ If a slot's kernel is corrupt:
 - The other slot still works. From u-boot: `setenv boot_slot bak; saveenv;
   reset` (or `main`). With `bootdelay=3` this is a 3-second window after
   power-on.
-- If both slots are wedged: re-run `onboard.sh` — it catches u-boot via the
-  UART probe regardless of state and re-flashes from scratch.
+- If both slots are wedged: redo the [QUICKSTART.md](QUICKSTART.md)
+  dev-path install from scratch — catching u-boot over UART works
+  regardless of slot state and re-flashes the eMMC over UMS.
 
 If u-boot itself is broken (very rare — we don't touch the bootloader
 region): NXP SDP recovery via `uuu` over USB. Out of scope here.

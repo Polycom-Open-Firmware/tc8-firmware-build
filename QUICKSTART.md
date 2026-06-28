@@ -204,19 +204,5 @@ reboot` (from another panel, or via the recovery path below).
 ## Recovery
 
 If both kernel slots are wedged and you can't reach Linux: repeat steps 1–5.
-`onboard.sh` (the automated version) is idempotent — running it on a panel
-in any state is safe and brings it back to a known-good install.
-
-## Going automated
-
-Everything in steps 1–5 is what `smoke/onboard.sh` does over the network
-through a UART probe. If you have one of those, the whole flow is one
-command:
-
-```sh
-SW_PASS=… TC8_HOST_PASS=root smoke/onboard.sh \
-    --uart-probe http://<probe-ip> --staging-host <ssh-alias> \
-    --poe-port <N> --artifacts /tmp/tc8
-```
-
-See [`smoke/onboard.sh`](smoke/onboard.sh) for details.
+The flow is idempotent — re-running it on a panel in any state is safe and
+brings it back to a known-good install.
