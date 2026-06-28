@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# build.sh — top-level pipeline: build kernel, then a flat-layout rootfs.img.
+# build.sh — top-level pipeline: build kernel + rootfs, then package the
+# slotable Android image (boot.img + dtbo.img + vbmeta.img + sparse rootfs)
+# booted by NXP `boota`, plus raw Image/dtb/rootfs.img for the dev paths.
 #
 # SLOTABLE ANDROID MODEL (option A — keep the stock Android GPT):
 # Our Linux ships as Android *slot B* alongside stock Android in slot A, booted
@@ -65,8 +67,9 @@ JOBS="$(nproc)"
 
 usage() {
   cat <<EOF
-build.sh — TC8 firmware build (kernel + DTB + rootfs.img). No AVB, no
-Android A/B — produces the artifacts our flat-layout install scheme uses.
+build.sh — TC8 firmware build. Produces the slotable Android image
+(boot.img + dtbo.img + vbmeta.img, unsigned AVB --algorithm NONE, booted by
+\`boota\`) + sparse rootfs.simg, plus raw Image/DTB/rootfs.img for dev paths.
 
 USAGE
   ./build.sh --profile={emmc|nfs} [options]

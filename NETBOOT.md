@@ -2,7 +2,10 @@
 
 How to netboot the TC8 panel: u-boot pulls a kernel + dtb over **TFTP**, kernel mounts its rootfs over **NFSv3**. Result: same fullscreen Wayland kiosk (cage + cog) as the eMMC target, but nothing is written to the device's flash.
 
-Useful for kernel/rootfs iteration during bring-up, and for keeping fleets of panels stateless.
+> **This is a dev / iteration path**, not the production install. The
+> shipped panel boots the slotable Android image via `boota` (see
+> [FLASHING.md](FLASHING.md)); netboot is for kernel/rootfs bring-up and for
+> keeping fleets of panels stateless.
 
 The examples below use the placeholder `<server-ip>` for your TFTP+NFS server. Substitute your own. The panel and the server must be on the same routable network.
 
@@ -40,7 +43,7 @@ Edit `profiles/nfs.env` (in the build repo) so the kernel cmdline points at your
 # Kernel + dtb → TFTP root
 sudo cp out/nfs/kernel/Image            /srv/tftp/tc8/Image
 sudo cp out/nfs/kernel/imx8mm-tc8.dtb   /srv/tftp/tc8/imx8mm-tc8.dtb
-# (Optional) the AVB-signed boot.img — useful if u-boot supports `bootm` of Android boot images
+# (Optional) the Android boot.img (unsigned AVB, --algorithm NONE) — useful if u-boot supports `bootm`/`boota` of Android boot images
 sudo cp out/nfs/boot.img                /srv/tftp/tc8/boot.img
 
 # Rootfs → NFS export
@@ -70,7 +73,7 @@ Power-cycle the panel and interrupt u-boot at the `Hit any key to stop autoboot`
 => booti 0x40480000 - 0x43000000
 ```
 
-If your u-boot supports Android boot images, you can use the AVB-signed bundle instead:
+If your u-boot supports Android boot images, you can use the Android boot.img (unsigned AVB) instead:
 
 ```sh
 => tftpboot 0x40480000 tc8/boot.img

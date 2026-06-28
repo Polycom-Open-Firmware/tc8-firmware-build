@@ -4,36 +4,53 @@ Sideload mainline Linux + a Debian kiosk onto the **Polycom TC8**
 video-conferencing touch panel (i.MX 8M Mini, codename LCC). Build a
 reproducible image, push it to a panel, repurpose the hardware.
 
-The build produces three artifacts:
+The build emits Debian as a **slotable Android image** plus the raw
+artifacts the dev/netboot paths use:
 
-- `Image` — raw mainline Linux 6.6 kernel
-- `imx8mm-tc8.dtb` — raw device tree for the LCC board
-- `rootfs.img` — plain ext4 rootfs
+- `boot.img` — Android boot.img: kernel + empty ramdisk + our Debian
+  cmdline (`root=PARTLABEL=userdata`), with an AVB hash footer
+- `dtbo.img` — `imx8mm-tc8.dtb` wrapped in an Android DTBO container
+- `vbmeta.img` — AVB top-level metadata (hash descriptors for boot+dtbo)
+- `rootfs.simg` — Android **sparse** rootfs, fastboot-flashed to `userdata`
+- `Image` / `imx8mm-tc8.dtb` / `rootfs.img` — raw kernel, DTB, ext4 rootfs
+  (for the direct-write dev path and netboot)
 
 Two profiles share the same kernel + rootfs:
 
-- **emmc** — installed onto eMMC via `smoke/onboard.sh`
+- **emmc** — the slotable Android image, flashed by the browser provisioner
 - **nfs** — netboot bring-up, kernel TFTP'd, rootfs over NFS
 
-Both boot into the same fullscreen Wayland kiosk (`cage` + `cog`) loading
-a configurable URL.
+Both boot into the same fullscreen Wayland kiosk (`cage` + `cog`). The
+bundled default page is a touch-tester at `/etc/tc8-kiosk/touchtest.html`;
+point `KIOSK_URL` at any URL you like.
 
 ## How the boot path actually works
 
-The TC8's stock u-boot has Polycom's signing key locked into AVB. We
-can't sign anything it will accept, and we can't replace u-boot (the
-SoC's HAB fuses point at Polycom's key too). So we don't try.
+We don't have Polycom's AVB signing key and we can't replace stock u-boot
+(the SoC's HAB fuses pin its signature). Instead we run a chainloaded
+**stage-2 U-Boot** with the bootloader **UNLOCKED**, and ship Debian as a
+slotable Android image that stage-2 boots with NXP `boota` — the same path
+stock Android uses.
 
-What we do instead: overwrite u-boot's *environment* — the `bootcmd`
-script, the cmdline — and have it raw-read our kernel and DTB from fixed
-eMMC offsets and `booti` directly. No Android boot.img wrapper, no dtbo
-overlay, no vbmeta — AVB never executes. The rootfs is plain ext4
-mounted by the kernel via `root=/dev/mmcblk2p5`.
+`boota` runs AVB, so we *do* generate AVB metadata — but **unsigned**
+(`avbtool --algorithm NONE`). `boota` rejects an image with *no* vbmeta
+(`INVALID_METADATA`); once the metadata exists, an unlocked bootloader
+forgives the missing/mismatched signature. So `boot.img` and `dtbo.img`
+each carry an AVB hash footer and `vbmeta.img` bundles their descriptors —
+structurally valid, cryptographically unsigned, boots only because the unit
+is unlocked.
 
-See [FLASHING.md](FLASHING.md) for the full recipe and [the partition
-table](FLASHING.md#partition-layout). u-boot env edits happen from
-running Linux via `fw_setenv` (the rootfs ships `u-boot-tools` and the
-right `/etc/fw_env.config`).
+Install is the browser provisioner (`../provision-tool/`, a separate
+WebUSB tool): a one-time **enroll** lands our stage-2 U-Boot, then
+**flashos** does `fastboot flash boot_a / dtbo_a / vbmeta_a`, sparse-flashes
+`rootfs.simg` → `userdata`, `set_active`, and reboots into Debian via
+`boota`. See [FLASHING.md](FLASHING.md) for the full flow.
+
+> A direct-write **dev/lab path** (UMS + flat GPT + `booti`, via
+> `smoke/onboard.sh`) and **netboot** (TFTP+NFS) also exist — see
+> [FLASHING.md](FLASHING.md#dev-path--direct-write-via-ums) and
+> [NETBOOT.md](NETBOOT.md). u-boot env edits from running Linux still use
+> `fw_setenv` (the rootfs ships `u-boot-tools` + `/etc/fw_env.config`).
 
 ## What you get on the panel
 
@@ -46,14 +63,15 @@ right `/etc/fw_env.config`).
 ## Repo layout
 
 ```
-build.sh                 top-level pipeline: kernel + rootfs.img + SHA256SUMS
+build.sh                 top-level pipeline: kernel + slot images + rootfs + SHA256SUMS
 bootstrap.sh             one-shot: fetches vanilla linux-6.6
+tools/                   mkbootimg.py, mkdtboimg.py, mksparse.py, avbtool (slot-image + AVB)
 profiles/                emmc.env, nfs.env — per-target kernel cmdline
 kernel/                  kernel/build.sh + tc8.config (config fragment)
 kernel-patches/          submodule: tc8 patch series for vanilla 6.6
 rootfs/                  submodule: Debian rootfs builder + chroot-setup
 images/                  rootfs.sh (plain ext4) + cmdlines.sh
-smoke/                   onboard.sh + hw-smoke-test.sh + test fixtures
+smoke/                   onboard.sh (dev-path direct-write) + hw-smoke-test.sh
 .github/workflows/       release.yml, hw-smoke.yml
 ```
 
@@ -67,26 +85,24 @@ git clone --recurse-submodules https://github.com/Polycom-Open-Firmware/tc8-firm
 cd tc8-firmware-build
 ./bootstrap.sh
 sudo ./build.sh --profile=emmc
-# artifacts in out/emmc/{Image,imx8mm-tc8.dtb,rootfs.img}
+# slot images + rootfs in out/emmc/{boot.img,dtbo.img,vbmeta.img,rootfs.simg,Image,imx8mm-tc8.dtb,rootfs.img}
 ```
 
-Install onto a panel (automated, via a brainslug probe + UMS):
+Install onto a panel with the **browser provisioner** (`../provision-tool/`,
+separate WebUSB tool — no host `fastboot` binary, no driver install):
 
-```bash
-smoke/onboard.sh --brainslug http://<brainslug-ip> \
-                 --staging-host <ssh-alias> \
-                 --poe-port <panel-poe-port> \
-                 --artifacts out/emmc
-```
+1. Get the unit into the stage-2 fastboot gadget — a fresh unit takes a
+   one-time serial bootstrap; an already-enrolled unit uses the 4-finger
+   gesture at the boot selector.
+2. Open the tool in Chrome/Edge, **enroll** (one-time: lands our stage-2
+   U-Boot), then **flashos** — it `fastboot flash`es `boot_a`/`dtbo_a`/
+   `vbmeta_a`, sparse-flashes `rootfs.simg` → `userdata`, `set_active`, and
+   reboots into Debian via `boota`.
 
-> ⚠ `--poe-port`/`--brainslug` are environment-specific placeholders —
-> a wrong PoE port can power-cycle/reflash the wrong device on a shared
-> switch. See [FLASHING.md](FLASHING.md) for the safety note and the
-> optional unlock-FW (`stage2-uboot.bin`/`bmp_blob.bin`) artifacts.
-
-Or follow [QUICKSTART.md](QUICKSTART.md) for a manual, no-brainslug recipe
-that takes about 15 minutes with just a USB-C cable and a serial UART
-probe.
+See [FLASHING.md](FLASHING.md) for the full provisioning flow. A
+direct-write **dev/lab path** (UMS + flat GPT + `booti` via
+`smoke/onboard.sh`, and the manual [QUICKSTART.md](QUICKSTART.md) recipe)
+also exists for bring-up.
 
 Default credentials baked into the image: **`root` / `root`** (works on
 tty, USB CDC ACM, and ssh — change before plugging into anything you
@@ -94,20 +110,21 @@ care about). See [BUILDING.md](BUILDING.md) for credential overrides.
 
 ## Documentation
 
-- **[QUICKSTART.md](QUICKSTART.md)** — 5-command hobbyist recipe to flash a panel by hand (UMS + dd, no brainslug needed)
+- **[FLASHING.md](FLASHING.md)** — the `boota` slot-image model, browser provisioning (enroll → flashos), and the direct-write dev path + recovery
 - **[BUILDING.md](BUILDING.md)** — host setup (Ubuntu), build pipeline, iterate
-- **[FLASHING.md](FLASHING.md)** — `onboard.sh`, partition layout, fw_setenv from running Linux, recovery
-- **[NETBOOT.md](NETBOOT.md)** — TFTP+NFS server setup, u-boot commands for dev-mode boots
+- **[QUICKSTART.md](QUICKSTART.md)** — manual dev-path recipe (UMS + dd flat layout, no brainslug needed)
+- **[NETBOOT.md](NETBOOT.md)** — dev path: TFTP+NFS server setup, u-boot commands for stateless boots
 
 ## Status
 
-- Display, audio, network, USB-data CDC, eMMC install, NFS netboot — all verified end-to-end on hardware
-- Two panel u-boot variants seen in the wild ("class A" with Polycom's `slotbboot` + `boota` fallback; "class B" with `boota mmc1` only). Both work — see [FLASHING.md](FLASHING.md#first-install-on-a-panel).
+- Display, audio, network, USB-data CDC, NFS netboot — all verified end-to-end on hardware
+- Slot-image (`boota`) provisioning via the browser tool — current install path; enroll + flashos proven on bench
+- Direct-write dev path (UMS flat GPT + `booti`) — still functional for bring-up/lab use
 
 ## Hardware constraints worth knowing
 
-- **U-Boot 2018.03 (Polycom-customized)** — we don't replace it; we just rewrite its environment. AVB sits unused. `bootcmd` becomes `run slotbboot`, our env script.
-- **HAB-locked BootROM** — the SoC's SRK_HASH is fused to Polycom's signing key, so the bootloader is permanent. Doesn't matter for us; u-boot env is mutable.
+- **HAB-locked BootROM** — the SoC's SRK_HASH is fused to Polycom's signing key, so stock u-boot is permanent; we can't replace it or sign for AVB. We chainload a **stage-2 U-Boot** instead and run with the bootloader **UNLOCKED**, which lets `boota` accept our **unsigned** (`--algorithm NONE`) AVB metadata.
+- **`boota` requires AVB metadata to exist** — an image with no `vbmeta` is rejected as `INVALID_METADATA` even when unlocked; the unlock only forgives a missing/mismatched *signature*. So we always emit `vbmeta.img` + hash footers.
 - **`Image` size is capped at ~32 MiB** by u-boot's `BOOTM_LEN`. The default `tc8.config` keeps it around 24 MiB. CI fails the release if it grows past the cap.
 
 ## License

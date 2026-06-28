@@ -1,9 +1,19 @@
-# Quickstart — flash a TC8 panel in 5 commands
+# Quickstart — flash a TC8 panel by hand (dev path)
 
 A copy-paste recipe for taking a Polycom TC8 from stock (or any prior sideload
-revision) to the latest mainline-Linux + Debian kiosk image. Friendly to first
+revision) to a mainline-Linux + Debian kiosk image. Friendly to first
 attempts; assumes you have one TC8 panel, a USB-A-to-USB-C cable to your Linux
 laptop, and a serial UART jumper.
+
+> **This is the manual dev/lab path** — a **flat GPT** written over UMS that
+> u-boot raw-reads and `booti`s (no Android wrapper, no AVB). It still works
+> and needs no special tooling, but a panel installed this way runs the
+> `slotbboot`/`booti` env with `root=/dev/mmcblk2p5`, **not** `boota`.
+>
+> The **production install** is the browser provisioner
+> (`../provision-tool/`): it flashes the slotable Android image
+> (`boot.img`/`dtbo.img`/`vbmeta.img` + sparse `rootfs.simg` → `userdata`)
+> and boots it with `boota`. See [`FLASHING.md`](FLASHING.md#provisioning-a-panel-browser-tool).
 
 For the long-form rationale (boot path, partition layout, why we wipe
 Android), see [`FLASHING.md`](FLASHING.md).

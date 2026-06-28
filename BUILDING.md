@@ -3,14 +3,19 @@
 Build the sideloaded Linux image for a Polycom TC8 panel from a fresh
 checkout. Two profiles share the same kernel + rootfs:
 
-- `emmc` — eMMC install via `smoke/onboard.sh`
+- `emmc` — the slotable Android image (`boot.img` + `dtbo.img` +
+  `vbmeta.img` + sparse `rootfs.simg`), booted by `boota` and installed by
+  the browser provisioner
 - `nfs` — netboot bring-up, kernel TFTP'd, rootfs over NFS
 
-There is no AVB signing step. The TC8's stock bootloader can't verify
-anything we'd sign anyway (Polycom's prod key is the only one its u-boot
-accepts) — see [FLASHING.md](FLASHING.md) for the whole story. We skip
-the ritual and emit raw `Image`, raw `imx8mm-tc8.dtb`, and a plain ext4
-`rootfs.img`.
+We **do** emit AVB metadata, but **unsigned** (`tools/avbtool ...
+--algorithm NONE`). We don't have Polycom's signing key, but the slot image
+is booted by `boota` with the bootloader **unlocked** — `boota` requires
+AVB metadata to *exist* (rejects an image with none as `INVALID_METADATA`)
+yet forgives the missing signature once unlocked. So `build.sh` produces
+both the Android slot image (`boot.img`/`dtbo.img`/`vbmeta.img` +
+`rootfs.simg`) and the raw `Image` / `imx8mm-tc8.dtb` / `rootfs.img` used by
+the dev/netboot paths. See [FLASHING.md](FLASHING.md) for the whole story.
 
 ## 1. Install prerequisites
 
@@ -76,9 +81,13 @@ invocation builds rootfs (~10 min) + kernel (~3 min) + `rootfs.img`
 Outputs:
 
 ```
-out/emmc/Image                  # raw kernel for booti
-out/emmc/imx8mm-tc8.dtb         # raw device tree
-out/emmc/rootfs.img             # 13 GiB ext4 (sparse; ~2 GiB used)
+out/emmc/boot.img               # Android boot.img v0 + AVB hash footer (NONE) -> fastboot flash boot_a
+out/emmc/dtbo.img               # DTB in Android DTBO container + AVB footer    -> fastboot flash dtbo_a
+out/emmc/vbmeta.img             # AVB vbmeta, hash descriptors boot+dtbo (NONE) -> fastboot flash vbmeta_a
+out/emmc/rootfs.simg            # Android sparse rootfs                         -> fastboot flash userdata
+out/emmc/Image                  # raw kernel (dev path / netboot)
+out/emmc/imx8mm-tc8.dtb         # raw device tree (dev path / netboot)
+out/emmc/rootfs.img             # 13 GiB ext4 (sparse on disk; ~2 GiB used)
 out/emmc/version.env            # TC8_FW_VERSION, build host, etc.
 out/emmc/SHA256SUMS
 out/emmc/kernel/Image           # intermediate (= out/emmc/Image)
@@ -86,18 +95,15 @@ out/emmc/kernel/Image           # intermediate (= out/emmc/Image)
 
 ## 5. Install
 
-See [FLASHING.md](FLASHING.md). The one-liner:
+See [FLASHING.md](FLASHING.md). The production path is the **browser
+provisioner** (`../provision-tool/`): get the unit into the stage-2
+fastboot gadget (one-time serial bootstrap on a fresh unit, or the 4-finger
+gesture once enrolled), then `flashos` writes `boot_a`/`dtbo_a`/`vbmeta_a` +
+sparse `rootfs.simg` → `userdata`, `set_active`, and reboots via `boota`.
 
-```bash
-smoke/onboard.sh --brainslug http://10.99.0.35 \
-                 --fastboot-host aibox \
-                 --poe-port 3 \
-                 --artifacts out/emmc
-```
-
-This drives the panel into u-boot, writes our flat GPT, fastboot-flashes
-`kernel` / `dtb` / `rootfs`, installs the u-boot env that does raw
-`mmc read` + `booti`, and reboots.
+A direct-write **dev path** (UMS + flat GPT + `booti` via
+`smoke/onboard.sh`, and the manual [QUICKSTART.md](QUICKSTART.md) recipe)
+remains for bring-up.
 
 ## 6. Iterate
 

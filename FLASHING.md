@@ -2,39 +2,85 @@
 
 How to take a Polycom TC8 panel from stock (or a previous rev of this
 sideload) onto the current build. Result: panel boots from eMMC into a
-fullscreen Wayland kiosk (cage + cog) loading whatever URL you've
-configured.
+fullscreen Wayland kiosk (cage + cog) — by default a touch-tester at
+`/etc/tc8-kiosk/touchtest.html`; point `KIOSK_URL` wherever you like.
 
-## How the sideload boots
+## How the slot image boots
 
-The TC8 ships with stock Android A/B partitions and AVB locked to
-Polycom's signing key — `boota` rejects anything not signed by them, and
-we don't have their key. We bypass AVB entirely by overwriting u-boot's
-environment so the boot path is just raw `mmc read` + `booti`:
+We can't sign for stock AVB (Polycom's key is fused into HAB) and we can't
+replace stock u-boot. So we chainload a **stage-2 U-Boot** with the
+bootloader **UNLOCKED**, and ship Debian as a **slotable Android image**
+that stage-2 boots with NXP `boota` — the established Android boot path.
 
-```
-bootcmd = run slotbboot
-slotbboot = mmc dev 1;
-            if test "${boot_slot}" = "bak"; then
-              mmc read 0x40000000 0x20000 0x20000;   # kernel_bak (raw Image)
-              mmc read 0x43400000 0x3a000 0x100;     # dtb_bak    (raw DTB)
-            else
-              mmc read 0x40000000 0x8000  0x20000;   # kernel
-              mmc read 0x43400000 0x38000 0x100;     # dtb
-            fi
-            setenv bootargs "${tc8_bootargs}";
-            booti 0x40000000 - 0x43400000
-tc8_bootargs = console=tty0 console=ttymxc1,115200 ... root=/dev/mmcblk2p5 ...
-boot_slot = main
-```
+`build.sh` emits the slot image into `out/<profile>/`:
 
-No Android boot.img wrapper, no dtbo overlay, no vbmeta — the kernel and DTB
-sit raw at fixed LBA offsets the bootloader can find without any signature
-check.
+- **`boot.img`** — Android boot.img v0: kernel + an *empty* ramdisk + our
+  Debian cmdline (`root=PARTLABEL=userdata`). No DTB inside.
+- **`dtbo.img`** — `imx8mm-tc8.dtb` in an Android DTBO container.
+- **`vbmeta.img`** — AVB top-level metadata carrying hash descriptors for
+  `boot` and `dtbo`.
 
-## Partition layout
+`boota` runs AVB, so the images **must** carry AVB metadata — but it is
+**unsigned** (`tools/avbtool ... --algorithm NONE`). `boot.img` and
+`dtbo.img` each get an AVB hash *footer* (`add_hash_footer`, which also
+grows them to their exact GPT partition size) and `vbmeta.img` bundles
+their descriptors. The key fact:
 
-We rewrite the eMMC's GPT to a flat layout sized for 13 GB of rootfs:
+> `boota` rejects an image with **no** vbmeta as `INVALID_METADATA`, even
+> when the bootloader is unlocked. The unlock only forgives a *missing or
+> mismatched signature* — not absent metadata. So we always generate
+> structurally-valid-but-unsigned AVB; it boots only because the unit is
+> unlocked.
+
+The rootfs lands in the stock `userdata` partition and is mounted via the
+cmdline's `root=PARTLABEL=userdata`.
+
+## Provisioning a panel (browser tool)
+
+The production install path is the **browser provisioner**
+(`../provision-tool/`, a separate WebUSB tool — Chrome/Edge, no host
+`fastboot` binary and no driver install). It talks the fastboot protocol
+directly to the stage-2 U-Boot gadget.
+
+**Two operator entry paths into fastboot:**
+
+- **Fresh / unprovisioned unit — one-time serial bootstrap.** A new unit
+  has only stock signed U-Boot, which doesn't auto-enter fastboot. Connect
+  serial, catch the stock prompt (`bootdelay=3`), `fastboot 0`, then the web
+  tool **enrolls** the unit over WebUSB (lands our stage-2 U-Boot resident,
+  sets the chainload `bootcmd` + `saveenv`). One time only.
+- **Already-enrolled unit — 4-finger gesture.** Stage-2 loads on every
+  boot; the operator does the finger-poke gesture at the boot selector to
+  drop into fastboot. No serial, no host CLI.
+
+**Then `flashos` writes the OS** (default slot `a` = replace stock
+entirely; pass slot `b` to keep stock Android in A):
+
+1. `fastboot flash boot_a` ← `boot.img`
+2. `fastboot flash dtbo_a` ← `dtbo.img`
+3. `fastboot flash vbmeta_a` ← `vbmeta.img`
+4. sparse-flash `rootfs.simg` → `userdata` (the Android sparse protocol
+   transfers ~the used data, not the full multi-GiB image)
+5. `set_active a`, then reboot → stage-2 `boota` → Debian.
+
+The browser fetches these from an artifact manifest pointing at the
+`build.sh` outputs (`boot.img`, `dtbo.img`, `vbmeta.img`, `rootfs.simg`).
+
+## Dev path — direct-write via UMS
+
+Everything below is the **bring-up / lab path**, distinct from the
+production `boota` provisioning above. Instead of the slot image it writes
+a **flat GPT** and has u-boot raw-read the kernel + DTB and `booti` them
+(no Android wrapper, no AVB). `smoke/onboard.sh` automates it over a
+brainslug + UMS; [QUICKSTART.md](QUICKSTART.md) is the same flow by hand.
+It still works and is handy for kernel/rootfs iteration, but a panel
+installed this way uses `root=/dev/mmcblk2p5` and the `slotbboot`/`booti`
+env — not `boota`.
+
+### Partition layout (flat / dev path)
+
+This path rewrites the eMMC's GPT to a flat layout sized for 13 GB of
+rootfs:
 
 | # | Name        | Start LBA  | Size   | Use |
 |---|-------------|-----------:|-------:|-----|
@@ -72,9 +118,9 @@ reclaim anything in `0x4000–0x8000`.** Earlier the stage-2 lived in
 partition* (`slotbboot` raw-reads + `booti`s it on `boot_slot=bak`), so
 it was never safe; this reserved gap is the on-eMMC contract.
 
-## First install on a panel
+### First install (onboard.sh, dev path)
 
-Onboarding is one command:
+Onboarding the flat-layout install is one command:
 
 ```bash
 smoke/onboard.sh \
@@ -151,9 +197,9 @@ If you just want to push a new rootfs without touching kernel/DTB,
 re-run with the same artifacts but only `rootfs.img` populated — the
 script skips partitions whose source isn't present.
 
-## Updating from running Linux
+### Updating from running Linux (dev path)
 
-Once a panel is on this firmware, you don't need to drop to u-boot for
+Once a panel is on the flat-layout firmware, you don't need to drop to u-boot for
 common edits. `u-boot-tools` is in the rootfs and `/etc/fw_env.config`
 points at the eMMC env block (`/dev/mmcblk2` offset `0x400000`,
 64 KiB). From a root shell on the panel:
@@ -180,7 +226,7 @@ ssh root@panel '
 
 Roll back by `fw_setenv boot_slot main && reboot`.
 
-## Recovery / unbrick
+### Recovery / unbrick (dev path)
 
 If a slot's kernel is corrupt:
 
