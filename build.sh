@@ -177,6 +177,41 @@ rootfs_args=( --rootfs="$ROOTFS" --out="$OUT/rootfs.img" )
 [[ -n "$ROOTFS_IMG_SIZE" ]] && rootfs_args+=( --image-size="$ROOTFS_IMG_SIZE" )
 "$REPO_ROOT/images/rootfs.sh" "${rootfs_args[@]}"
 
+# Android sparse copy of rootfs.img for WebUSB fastboot provisioning. rootfs.img
+# is sized for the whole `userdata` partition (multi-GiB) but mostly zero blocks;
+# sparse encodes the zero runs as DONT_CARE chunks (no payload), so rootfs.simg
+# is a small fraction of the raw size. The browser provisioner re-splits THIS
+# into per-download sub-images (provision-tool/src/sparse.js) — it never handles
+# the raw multi-GiB image. Round-tripped below in the verify step.
+echo "===> [2.1/3] rootfs.simg (Android sparse, fastboot flash userdata)"
+python3 "$REPO_ROOT/tools/mksparse.py" "$OUT/rootfs.img" "$OUT/rootfs.simg"
+
+# Verify the sparse image: prefer a real simg2img round-trip (byte-identical to
+# the raw), else (no AOSP tools) assert the header fields + that the chunks'
+# block coverage re-expands to exactly the raw size.
+if command -v simg2img >/dev/null 2>&1; then
+  echo "===> [2.1/3]   verify: simg2img round-trip"
+  simg2img "$OUT/rootfs.simg" "$OUT/rootfs.simg.expanded"
+  # rootfs.img is whole 4096-blocks; simg2img reproduces it exactly.
+  if cmp -s "$OUT/rootfs.img" "$OUT/rootfs.simg.expanded"; then
+    echo "       round-trip OK (simg2img output == rootfs.img)"
+  else
+    # mksparse pads a partial tail block; allow expansion to be a block-rounded
+    # superset that matches on the raw image's length.
+    raw_sz=$(stat -c %s "$OUT/rootfs.img")
+    if cmp -s -n "$raw_sz" "$OUT/rootfs.img" "$OUT/rootfs.simg.expanded"; then
+      echo "       round-trip OK (matches over rootfs.img length $raw_sz B)"
+    else
+      echo "ERROR: simg2img round-trip mismatch" >&2; exit 1
+    fi
+  fi
+  rm -f "$OUT/rootfs.simg.expanded"
+else
+  echo "===> [2.1/3]   verify: header + re-expand size (no simg2img)"
+  python3 "$REPO_ROOT/tools/mksparse.py" --verify "$OUT/rootfs.simg" "$OUT/rootfs.img" \
+    || { echo "ERROR: rootfs.simg verify failed" >&2; exit 1; }
+fi
+
 # Lift Image + DTB up to the top of out/<profile>/ so release assembly
 # doesn't have to peek into out/<profile>/kernel/.
 cp "$KIMG" "$OUT/Image"
@@ -244,7 +279,7 @@ TC8_PATCHES_VERSION=$TC8_PATCHES_VERSION
 TC8_BUILD_DATE=$TC8_BUILD_DATE
 TC8_BUILD_HOST=$TC8_BUILD_HOST
 EOF
-( cd "$OUT" && sha256sum Image imx8mm-tc8.dtb boot.img dtbo.img vbmeta.img rootfs.img version.env > SHA256SUMS && cat SHA256SUMS )
+( cd "$OUT" && sha256sum Image imx8mm-tc8.dtb boot.img dtbo.img vbmeta.img rootfs.img rootfs.simg version.env > SHA256SUMS && cat SHA256SUMS )
 
 echo "[OK] all artifacts in $OUT:"
 echo "       Image            raw kernel"
@@ -253,3 +288,4 @@ echo "       boot.img         Android boot.img v0 + AVB hash footer (NONE)   -> 
 echo "       dtbo.img         Android DTBO + AVB hash footer (NONE)          -> fastboot flash dtbo_b"
 echo "       vbmeta.img       AVB vbmeta, hash descriptors boot+dtbo (NONE)  -> fastboot flash vbmeta_b"
 echo "       rootfs.img       ext4 rootfs                                   -> userdata (root=PARTLABEL=userdata)"
+echo "       rootfs.simg      Android sparse rootfs (WebUSB fastboot)        -> fastboot flash userdata (resparsed in-browser)"
