@@ -1,4 +1,4 @@
-# tc8-firmware-build
+# Open Firmware for the Polycom TC8
 
 ![A repurposed Polycom TC8 panel running a Home Assistant dashboard as a fullscreen kiosk](docs/tc8-kiosk-dashboard.jpeg)
 
