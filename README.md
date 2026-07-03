@@ -5,7 +5,7 @@ video-conferencing touch panel (i.MX 8M Mini, codename LCC). Build a
 reproducible image, push it to a panel, repurpose the hardware.
 
 The build emits Debian as a **slotable Android image** plus the raw
-artifacts the dev/netboot paths use:
+artifacts the netboot path uses:
 
 - `boot.img` — Android boot.img: kernel + empty ramdisk + our Debian
   cmdline (`root=PARTLABEL=userdata`), with an AVB hash footer
@@ -13,7 +13,7 @@ artifacts the dev/netboot paths use:
 - `vbmeta.img` — AVB top-level metadata (hash descriptors for boot+dtbo)
 - `rootfs.simg` — Android **sparse** rootfs, fastboot-flashed to `userdata`
 - `Image` / `imx8mm-tc8.dtb` / `rootfs.img` — raw kernel, DTB, ext4 rootfs
-  (for the direct-write dev path and netboot)
+  (for netboot)
 
 Two profiles share the same kernel + rootfs:
 
@@ -40,17 +40,19 @@ each carry an AVB hash footer and `vbmeta.img` bundles their descriptors —
 structurally valid, cryptographically unsigned, boots only because the unit
 is unlocked.
 
-Install is the browser provisioner (`../provision-tool/`, a separate
-WebUSB tool): a one-time **enroll** lands our stage-2 U-Boot, then
-**flashos** does `fastboot flash boot_a / dtbo_a / vbmeta_a`, sparse-flashes
-`rootfs.simg` → `userdata`, `set_active`, and reboots into Debian via
-`boota`. See [FLASHING.md](FLASHING.md) for the full flow.
+Install is the [browser provisioner](https://github.com/Polycom-Open-Firmware/provisioner)
+(a separate WebUSB tool). A fresh unit first has to be **unlocked over a
+serial cable** — catch the stock U-Boot prompt (mash Ctrl-C as it powers up) and force it
+into fastboot — after which a one-time **enroll** lands our stage-2 U-Boot.
+Then **flashos** does `fastboot flash boot_a / dtbo_a / vbmeta_a`,
+sparse-flashes `rootfs.simg` → `userdata`, `set_active`, and reboots into
+Debian via `boota`. See [FLASHING.md](FLASHING.md) for the full flow.
 
-> A direct-write **dev/lab path** (UMS + flat GPT + `booti`) and
-> **netboot** (TFTP+NFS) also exist — see
-> [FLASHING.md](FLASHING.md#dev-path--direct-write-via-ums) and
-> [NETBOOT.md](NETBOOT.md). u-boot env edits from running Linux still use
-> `fw_setenv` (the rootfs ships `u-boot-tools` + `/etc/fw_env.config`).
+> **Netboot** (TFTP kernel + NFS rootfs) also exists as a dev/iteration
+> path — see [NETBOOT.md](NETBOOT.md). Post-install device config and
+> stage-2 updates go through the `cache` partition (no serial) — see
+> [CONFIG-PARTITION.md](CONFIG-PARTITION.md) and
+> [BOOTLOADER-UPDATE.md](BOOTLOADER-UPDATE.md).
 
 ## What you get on the panel
 
@@ -71,7 +73,7 @@ kernel/                  kernel/build.sh + tc8.config (config fragment)
 kernel-patches/          submodule: tc8 patch series for vanilla 6.6
 rootfs/                  submodule: Debian rootfs builder + chroot-setup
 images/                  rootfs.sh (plain ext4)
-smoke/                   catch_uboot.py, uboot_watch.py, poe_cycle.sh, orient.html (dev-path bring-up helpers)
+smoke/                   catch_uboot.py, uboot_watch.py, poe_cycle.sh, orient.html (serial-bootstrap / bring-up helpers)
 .github/workflows/       release.yml
 ```
 
@@ -88,20 +90,22 @@ sudo ./build.sh --profile=emmc
 # slot images + rootfs in out/emmc/{boot.img,dtbo.img,vbmeta.img,rootfs.simg,Image,imx8mm-tc8.dtb,rootfs.img}
 ```
 
-Install onto a panel with the **browser provisioner** (`../provision-tool/`,
-separate WebUSB tool — no host `fastboot` binary, no driver install):
+Install onto a panel with the
+[**browser provisioner**](https://github.com/Polycom-Open-Firmware/provisioner)
+(separate WebUSB tool — no host `fastboot` binary, no driver install):
 
-1. Get the unit into the stage-2 fastboot gadget — a fresh unit takes a
-   one-time serial bootstrap; an already-enrolled unit uses the 4-finger
-   gesture at the boot selector.
+1. Get the unit into the stage-2 fastboot gadget. A fresh unit needs a
+   one-time unlock over a serial cable: catch the stock U-Boot prompt
+   (mash Ctrl-C as it powers up) and force it into fastboot. An already-enrolled unit just
+   uses the 4-finger gesture at the boot selector.
 2. Open the tool in Chrome/Edge, **enroll** (one-time: lands our stage-2
    U-Boot), then **flashos** — it `fastboot flash`es `boot_a`/`dtbo_a`/
    `vbmeta_a`, sparse-flashes `rootfs.simg` → `userdata`, `set_active`, and
    reboots into Debian via `boota`.
 
-See [FLASHING.md](FLASHING.md) for the full provisioning flow. A
-direct-write **dev/lab path** (UMS + flat GPT + `booti`, with a manual
-[QUICKSTART.md](QUICKSTART.md) recipe) also exists for bring-up.
+See [QUICKSTART.md](QUICKSTART.md) for the step-by-step fresh-unit serial
+bootstrap, and [FLASHING.md](FLASHING.md) for the full provisioning flow and
+the slot/`boot1` model.
 
 Default credentials baked into the image: **`root` / `root`** (works on
 tty, USB CDC ACM, and ssh — change before plugging into anything you
@@ -109,16 +113,15 @@ care about). See [BUILDING.md](BUILDING.md) for credential overrides.
 
 ## Documentation
 
-- **[FLASHING.md](FLASHING.md)** — the `boota` slot-image model, browser provisioning (enroll → flashos), and the direct-write dev path + recovery
+- **[FLASHING.md](FLASHING.md)** — the `boota` slot-image model, browser provisioning (enroll → flashos), the on-eMMC layout (A/B slots + stage-2 in `boot1`), and recovery
 - **[BUILDING.md](BUILDING.md)** — host setup (Ubuntu), build pipeline, iterate
-- **[QUICKSTART.md](QUICKSTART.md)** — manual dev-path recipe (UMS + dd flat layout, no UART probe needed)
+- **[QUICKSTART.md](QUICKSTART.md)** — fresh-unit serial bootstrap → browser provisioner (catch U-Boot, force fastboot, enroll + flashos)
 - **[NETBOOT.md](NETBOOT.md)** — dev path: TFTP+NFS server setup, u-boot commands for stateless boots
 
 ## Status
 
 - Display, audio, network, USB-data CDC, NFS netboot — all verified end-to-end on hardware
 - Slot-image (`boota`) provisioning via the browser tool — current install path; enroll + flashos proven on bench
-- Direct-write dev path (UMS flat GPT + `booti`) — still functional for bring-up/lab use
 
 ## Hardware constraints worth knowing
 

@@ -95,14 +95,14 @@ out/emmc/kernel/Image           # intermediate (= out/emmc/Image)
 
 ## 5. Install
 
-See [FLASHING.md](FLASHING.md). The production path is the **browser
-provisioner** (`../provision-tool/`): get the unit into the stage-2
+See [FLASHING.md](FLASHING.md). The production path is the
+[**browser provisioner**](https://github.com/Polycom-Open-Firmware/provisioner): get the unit into the stage-2
 fastboot gadget (one-time serial bootstrap on a fresh unit, or the 4-finger
 gesture once enrolled), then `flashos` writes `boot_a`/`dtbo_a`/`vbmeta_a` +
 sparse `rootfs.simg` → `userdata`, `set_active`, and reboots via `boota`.
 
-A direct-write **dev path** (UMS + flat GPT + `booti`, with a manual
-[QUICKSTART.md](QUICKSTART.md) recipe) remains for bring-up.
+[QUICKSTART.md](QUICKSTART.md) is the step-by-step fresh-unit serial bootstrap;
+[NETBOOT.md](NETBOOT.md) covers the TFTP+NFS dev/iteration path.
 
 ## 6. Iterate
 

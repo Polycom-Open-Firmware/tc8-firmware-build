@@ -10,7 +10,7 @@ the config-key schema. This doc is the bootloader-specific slice.
 
 ---
 
-## TL;DR for the wizard
+## Summary
 
 1. Fetch the stage-2 image `tc8-stage2-uboot.bin` (from the firmware release).
 2. Build the **cache image**: config blob at offset 0, bootloader blob at 1 MiB
@@ -26,7 +26,7 @@ no special bootloader command.
 
 ---
 
-## Why this works (so you can message it correctly)
+## Why this works
 
 - The stage-2 lives in the eMMC **boot1** hardware partition. A *running* Debian
   can rewrite boot1 (we do); a fastboot session generally can't target it cleanly.
@@ -117,25 +117,26 @@ CLI equivalent (for testing): `tools/mkconfigblob.py cache.img --bootloader tc8-
 - **Reconfigure**: offer it standalone ("Update bootloader") for an in-field
   bootloader bump without reinstalling the OS.
 
-**Timing to message to the user:** the wizard's job finishes when `fastboot flash
-cache` + `fastboot reboot` complete. The bootloader actually swaps on the unit's
-**first boot after that** (the OS flashes boot1, then it's live the boot after).
-Practically: after the wizard reboots the unit, it comes up on the *old* stage-2,
-flashes boot1 in the background, and the *next* power-cycle runs the new one. If
-you want it visibly current, prompt one extra reboot — or just let it settle; it's
-idempotent and self-heals.
+**Timing:** the wizard's job finishes when `fastboot flash cache` + `fastboot
+reboot` complete. The bootloader swaps on the unit's **first boot after that**
+(the OS flashes boot1, then it's live the boot after). So after the wizard
+reboots the unit, it comes up on the *old* stage-2, flashes boot1 in the
+background, and the *next* power-cycle runs the new one. To make it current in
+one visible step, prompt one extra reboot; otherwise it converges on its own,
+since the write is idempotent.
 
-**What can go wrong (and the safe story):** nothing the wizard does can brick the
-unit — boot0 is untouched, the OS verifies sha256 before writing and reads back
-after. Surface a simple "bootloader will finish updating on the next restart" note
-rather than a scary warning.
+**Failure modes:** nothing the wizard does can brick the unit — boot0 is
+untouched, and the OS verifies sha256 before writing and reads back after. Show
+a simple "bootloader will finish updating on the next restart" note; no warning
+is needed.
 
 ---
 
 ## Artifacts
 
 - **`tc8-stage2-uboot.bin`** — the stage-2 image. From the firmware release
-  (`releases/.../tc8-stage2-uboot.bin`) or `provision-tool/artifacts/`. Its md5 is
+  (`releases/.../tc8-stage2-uboot.bin`) or bundled with the
+  [browser provisioner](https://github.com/Polycom-Open-Firmware/provisioner). Its md5 is
   in `manifest.json` (`stage2.md5`); show/track that as the bootloader version.
 - The wizard already has it for **enroll** (it writes the same image to boot1 over
   serial on a virgin unit). This is the same image, delivered the no-serial way.
