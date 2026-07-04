@@ -11,6 +11,25 @@ page. One Ethernet cable supplies both power (PoE) and network, the
 installer runs in a web browser, and the whole stack — display, touch,
 audio, networking — runs on mainline Linux, verified on real hardware.
 
+**How it's installed and managed** — open the
+[browser provisioner](https://wizard.openpolycom.cc/) in Chrome or Edge,
+plug the panel into a USB port, and click through. Nothing to install, no
+drivers, no command line:
+
+- **Unlock** — first time on a fresh panel, hook up a serial adapter and
+  let the wizard do the rest ([QUICKSTART.md](QUICKSTART.md) is the
+  step-by-step). Once per panel, then the adapter goes back in the drawer.
+- **Install the OS** — pick a release, click flash. Keep stock Android in
+  the spare slot if you want a way back.
+- **Configure** — set the kiosk page, hostname, passwords, time zone, and
+  certificates from a form; no shell needed
+  ([CONFIG-PARTITION.md](CONFIG-PARTITION.md)).
+- **Update the bootloader** — same wizard, no serial adapter.
+
+Once unlocked, getting back into the wizard is just a four-finger tap on
+the panel's boot screen. The wizard itself is open source:
+[Polycom-Open-Firmware/provisioner](https://github.com/Polycom-Open-Firmware/provisioner).
+
 **How it works** — the TC8 will only start bootloader code signed by
 Polycom; that check is burned into the chip and can't be changed. So we
 don't fight it: the factory bootloader runs first, exactly as shipped, and
@@ -20,25 +39,6 @@ panel used to start Android — to the hardware, nothing unusual is
 happening. The factory bootloader is never overwritten, so a bad flash
 can't permanently brick the panel. [FLASHING.md](FLASHING.md) has the full
 mechanics.
-
-**How it's installed and managed** — with the
-[browser provisioner](https://wizard.openpolycom.cc/),
-a point-and-click wizard that runs entirely in Chrome or Edge: nothing to
-install, no drivers, no command line. It talks to the panel over a USB
-cable and can:
-
-- **Unlock** a fresh panel — one-time, and the only step that needs a
-  serial cable ([QUICKSTART.md](QUICKSTART.md) walks through it)
-- **Install or reinstall** the OS, with the option of keeping stock
-  Android in the panel's spare boot slot
-- **Configure** panels without ever opening a shell — hostname, kiosk
-  page, passwords, time zone, certificates, and more
-  ([CONFIG-PARTITION.md](CONFIG-PARTITION.md))
-- **Update the bootloader** in the field, again with no serial cable
-
-After the one-time unlock, everything happens with a four-finger tap on
-the panel's screen and a browser tab. The wizard itself is open source:
-[Polycom-Open-Firmware/provisioner](https://github.com/Polycom-Open-Firmware/provisioner).
 
 ## What you get on the panel
 
