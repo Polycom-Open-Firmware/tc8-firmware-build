@@ -84,7 +84,7 @@ out/emmc/vbmeta.img             # AVB vbmeta, hash descriptors boot+dtbo (NONE) 
 out/emmc/rootfs.simg            # Android sparse rootfs                         -> fastboot flash userdata
 out/emmc/Image                  # raw kernel (netboot)
 out/emmc/imx8mm-tc8.dtb         # raw device tree (netboot)
-out/emmc/rootfs.img             # 13 GiB ext4 (sparse on disk; ~2 GiB used)
+out/emmc/rootfs.img             # 6.4 GiB ext4, sized to the userdata partition (sparse on disk; ~2 GiB used)
 out/emmc/version.env            # TC8_FW_VERSION, build host, etc.
 out/emmc/SHA256SUMS
 out/emmc/kernel/Image           # intermediate (= out/emmc/Image)
@@ -134,6 +134,10 @@ with `--recurse-submodules`.
 The kernel `Image` must stay under u-boot 2018.03's 32 MiB `BOOTM_LEN`
 cap on this device. CI fails the release build if it grows past that.
 ~24 MiB is fine.
+
+`rootfs.img` is capped at the `userdata` partition (6,843,006,976 bytes) —
+the kernel refuses to mount an ext4 bigger than its partition, so `build.sh`
+errors out rather than emit an image that flashes but never boots.
 
 If the Image grows past the cap, add SoC families to `tc8.config`'s
 `# CONFIG_ARCH_… is not set` block to drop them.

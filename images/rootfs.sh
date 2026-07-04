@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # images/rootfs.sh — build a plain ext4 rootfs.img from a rootfs tarball or
-# directory. No AVB footer: this raw rootfs.img is the **dev/lab** path
-# (booti / flat-layout `rootfs` partition). The production path ships the
-# sparse `rootfs.simg` flashed to `userdata` instead.
+# directory. No AVB footer: the production path sparses this into rootfs.simg
+# and fastboot-flashes it to the stock `userdata` partition.
 #
 # USAGE
 #   images/rootfs.sh --rootfs=PATH [--out=FILE] [--image-size=BYTES]
@@ -15,10 +14,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ROOTFS=""
 OUT=""
-# Default size: 13 GiB. Matches the dev-path flat-layout `rootfs` partition.
-# Anything between ~1 GiB (just the base Debian) and 13 GiB works on the
-# target. Pick smaller for faster fastboot pushes; bigger for headroom.
-IMAGE_SIZE="13958643712"
+# Default size: the stock A/B GPT's `userdata` partition — 13365248 sectors
+# x 512 B (see gpt-restore/README.md). The image MUST NOT exceed it: the
+# kernel refuses to mount an ext4 bigger than its partition ("bad geometry").
+# Anything from ~1 GiB (just the base Debian) up to this cap works; pick
+# smaller for faster fastboot pushes.
+IMAGE_SIZE="6843006976"
 LABEL="tc8-rootfs"
 
 usage() {

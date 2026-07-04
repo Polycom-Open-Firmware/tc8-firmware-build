@@ -38,8 +38,8 @@
 #
 #   out/<profile>/Image              raw kernel (booti reads this directly)
 #   out/<profile>/imx8mm-tc8.dtb     raw device tree
-#   out/<profile>/rootfs.img         plain ext4, sized for the flat-layout
-#                                    `rootfs` partition (default 13 GiB)
+#   out/<profile>/rootfs.img         plain ext4, sized to exactly fill the
+#                                    stock `userdata` partition (6.4 GiB)
 #   out/<profile>/SHA256SUMS
 #
 # DEFAULT (run after ./bootstrap.sh):
@@ -61,6 +61,11 @@ LINUX=""; PATCHES=""; ROOTFS=""; PROFILE=""
 OUT=""
 SKIP_KERNEL=0
 SKIP_ROOTFS=0
+# The stock A/B GPT's `userdata` partition = 13365248 sectors x 512 B (see
+# gpt-restore/README.md). rootfs.img is flashed there and MUST NOT be bigger:
+# the kernel refuses to mount an ext4 whose block count exceeds the device
+# ("bad geometry"). Default = fill it exactly.
+USERDATA_PARTITION_SIZE=6843006976
 ROOTFS_IMG_SIZE=""
 JOBS="$(nproc)"
 
@@ -80,7 +85,7 @@ OPTIONS (all optional — defaults wired to submodules from ./bootstrap.sh)
   --linux=DIR        Vanilla linux-6.6 source tree    (default: ./linux-6.6)
   --patches=DIR      tc8-kernel-patches/patches       (default: ./kernel-patches/patches)
   --rootfs=PATH      rootfs tarball or directory      (default: ./rootfs/out/rootfs.tar.gz; auto-built if missing)
-  --rootfs-size=N    rootfs.img size in bytes         (default: 13 GiB)
+  --rootfs-size=N    rootfs.img size in bytes         (default: 6843006976 = the userdata partition, 6.4 GiB; larger will not mount)
   --out=DIR          output dir                       (default: ./out/<profile>)
   --skip-kernel      do not rebuild kernel (use existing out/kernel/Image)
   --skip-rootfs      do not rebuild rootfs tarball (use existing rootfs/out/)
@@ -172,9 +177,18 @@ else
 fi
 
 echo "===> [2/3] rootfs.img"
-rootfs_args=( --rootfs="$ROOTFS" --out="$OUT/rootfs.img" )
-[[ -n "$ROOTFS_IMG_SIZE" ]] && rootfs_args+=( --image-size="$ROOTFS_IMG_SIZE" )
+: "${ROOTFS_IMG_SIZE:=$USERDATA_PARTITION_SIZE}"
+rootfs_args=( --rootfs="$ROOTFS" --out="$OUT/rootfs.img" --image-size="$ROOTFS_IMG_SIZE" )
 "$REPO_ROOT/images/rootfs.sh" "${rootfs_args[@]}"
+
+# Guard: an ext4 bigger than userdata flashes but never mounts ("bad geometry").
+rootfs_sz=$(stat -c %s "$OUT/rootfs.img")
+if (( rootfs_sz > USERDATA_PARTITION_SIZE )); then
+  echo "ERROR: rootfs.img is $rootfs_sz B but the userdata partition is only" \
+       "$USERDATA_PARTITION_SIZE B — the panel would fail to mount it." \
+       "Use --rootfs-size=$USERDATA_PARTITION_SIZE or smaller." >&2
+  exit 1
+fi
 
 # Android sparse copy of rootfs.img for WebUSB fastboot provisioning. rootfs.img
 # is sized for the whole `userdata` partition (multi-GiB) but mostly zero blocks;
