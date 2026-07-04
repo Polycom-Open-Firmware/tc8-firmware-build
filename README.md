@@ -17,8 +17,7 @@ plug the panel into a USB port, and click through. Nothing to install, no
 drivers, no command line:
 
 - **Unlock** — first time on a fresh panel, hook up a serial adapter and
-  let the wizard do the rest ([QUICKSTART.md](QUICKSTART.md) is the
-  step-by-step). Once per panel, then the adapter goes back in the drawer.
+  let the wizard do the rest. Once per panel, then the adapter goes back in the drawer.
 - **Install the OS** — pick a release, click flash. Keep stock Android in
   the spare slot if you want a way back.
 - **Configure** — set the kiosk page, hostname, passwords, time zone, and
