@@ -45,7 +45,7 @@ little-endian. The config blob sits at offset 0; a staged bootloader
 - The device verifies magic + sha256 before applying either half. A
   fresh or empty `cache` (no magic) or a corrupt, half-written blob is
   ignored — the unit keeps its current config and bootloader. Applied
-  every boot (idempotent); the blob is not cleared.
+  ONCE per unique blob (sha-gated, marker on facres); the blob is not cleared. A re-provision writes a new blob → re-applies. In sealed mode the applied /etc is persisted + restored so it survives reboots without re-running.
 - Cache is 1 GiB, so even with a ~3 MiB stage-2 the composite is tiny;
   fastboot writes from offset 0, no need to write the whole partition.
 
@@ -117,6 +117,7 @@ Status: **✅ implemented** in the v1 reader (`rootfs/etc/tc8-config/apply-confi
 | `VLAN_ID` | ▢ | tag the `lan` port (DSA switch supports it) | `40` |
 | `HTTP_PROXY` | ▢ | proxy for kiosk + updates | `http://proxy:3128` |
 | `NTP_SERVER` | ✅ | `timesyncd.conf` `NTP=` | `192.168.1.1` |
+| `CONFIG_TIME` | ✅ | epoch seconds — **forward-only** clock bump so an offline device (no NTP) boots with a roughly-right clock. Auto-stamped by the wizard at flash time; never moves a real/NTP-synced clock backward. Baseline (no blob) = image build date via `/etc/fake-hwclock.data`. | `1783432800` |
 | `WIFI_SSID` | ✅ | configure `wlan0` with `wpa_supplicant` + DHCP via `systemd-networkd` | `Corp-Guest` |
 | `WIFI_PASSWORD` | ✅ | WPA/WPA2 passphrase for `WIFI_SSID`; omit for open Wi-Fi | `s3cretwifi` |
 | `WIFI_COUNTRY` | ✅ | optional regulatory country in `wpa_supplicant` config | `US` |

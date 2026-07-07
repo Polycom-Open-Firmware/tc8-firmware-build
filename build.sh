@@ -68,7 +68,7 @@ NO_RAMDISK=0
 # gpt-restore/README.md). rootfs.img is flashed there and MUST NOT be bigger:
 # the kernel refuses to mount an ext4 whose block count exceeds the device
 # ("bad geometry"). Default = fill it exactly.
-USERDATA_PARTITION_SIZE=6843006976
+USERDATA_PARTITION_SIZE=""   # set from target.env (ROOTFS_PARTITION_SIZE)
 ROOTFS_IMG_SIZE=""
 JOBS="$(nproc)"
 
@@ -111,6 +111,7 @@ for arg in "$@"; do
     --patches=*) PATCHES="${arg#--patches=}";;
     --rootfs=*) ROOTFS="${arg#--rootfs=}";;
     --os-profile=*) OS_PROFILES="${arg#--os-profile=}";;
+    --target=*) TARGET_BOARD="${arg#--target=}";;
     --profile=*) PROFILE="${arg#--profile=}";;
     --rootfs-size=*) ROOTFS_IMG_SIZE="${arg#--rootfs-size=}";;
     --out=*) OUT="${arg#--out=}";;
@@ -140,6 +141,15 @@ fi
 
 [[ -n "$PROFILE" ]] || { echo "ERROR: --profile= required" >&2; exit 1; }
 : "${OS_PROFILES:=kiosk}"
+# Target board (--target=tc8|c60): sources the board delta from targets/<t>/.
+: "${TARGET_BOARD:=tc8}"
+TENV="$REPO_ROOT/targets/$TARGET_BOARD/target.env"
+[[ -f "$TENV" ]] || { echo "ERROR: unknown --target '$TARGET_BOARD' (no $TENV)" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$TENV"
+echo "[+] target: $TARGET_NAME  dtb=$DTB_NAME  rootfs->$ROOTFS_PARTITION (${ROOTFS_PARTITION_SIZE} B)  boot=$BOOT_MODEL"
+USERDATA_PARTITION_SIZE="$ROOTFS_PARTITION_SIZE"
+: "${ROOTFS_IMG_SIZE:=$ROOTFS_IMG_DEFAULT_SIZE}"
 
 # Default OUT to per-profile subdir so emmc and nfs targets coexist.
 if [[ -z "$OUT" ]]; then
@@ -173,7 +183,7 @@ os_profile_tarballs_missing() {
 if [[ $SKIP_ROOTFS -ne 1 ]] && { [[ ! -e "$ROOTFS" ]] || os_profile_tarballs_missing; }; then
     echo "===> [0/3] rootfs tarball(s) (profiles: $OS_PROFILES)"
     if [[ $EUID -eq 0 ]]; then
-        ( cd "$DEFAULT_ROOTFS_DIR" && ./build.sh --profile="$OS_PROFILES" )
+        ( cd "$DEFAULT_ROOTFS_DIR" && ./build.sh --profile="$OS_PROFILES" --device="$TARGET_BOARD" )
     else
         ( cd "$DEFAULT_ROOTFS_DIR" && \
           sudo --preserve-env=TC8_FW_VERSION,TC8_ROOTFS_VERSION,TC8_PATCHES_VERSION,TC8_BUILD_DATE,TC8_BUILD_HOST,TC8_SSH_PUBKEY,TC8_ROOT_PASSWORD \
@@ -186,12 +196,12 @@ mkdir -p "$OUT"
 
 KERNEL_OUT="$OUT/kernel"
 KIMG="$KERNEL_OUT/Image"
-DTB="$KERNEL_OUT/imx8mm-tc8.dtb"
+DTB="$KERNEL_OUT/$DTB_NAME"
 
 if [[ $SKIP_KERNEL -ne 1 ]]; then
   echo "===> [1/3] kernel"
   "$REPO_ROOT/kernel/build.sh" --linux="$LINUX" --patches="$PATCHES" \
-    --jobs="$JOBS" --out="$KERNEL_OUT"
+    --target="$KERNEL_TARGET" --dtb-name="$DTB_NAME" --jobs="$JOBS" --out="$KERNEL_OUT"
 else
   echo "===> [1/3] kernel SKIPPED (--skip-kernel)"
   [[ -f "$KIMG" ]] || { echo "ERROR: $KIMG missing; cannot --skip-kernel" >&2; exit 1; }
@@ -206,12 +216,22 @@ rootfs_args=( --rootfs="$ROOTFS" --out="$OUT/rootfs.img" --image-size="$ROOTFS_I
 # Guard: an ext4 bigger than userdata flashes but never mounts ("bad geometry").
 rootfs_sz=$(stat -c %s "$OUT/rootfs.img")
 if (( rootfs_sz > USERDATA_PARTITION_SIZE )); then
-  echo "ERROR: rootfs.img is $rootfs_sz B but the userdata partition is only" \
-       "$USERDATA_PARTITION_SIZE B — the panel would fail to mount it." \
-       "Use --rootfs-size=$USERDATA_PARTITION_SIZE or smaller." >&2
+  echo "ERROR: rootfs.img is $rootfs_sz B but the $ROOTFS_PARTITION partition on" \
+       "$TARGET_NAME is only $ROOTFS_PARTITION_SIZE B — it would not mount." \
+       "Trim the profile or use --rootfs-size=$ROOTFS_IMG_DEFAULT_SIZE or smaller." \
+       "($TARGET_NAME budget is a HARD limit — the build refuses, never truncates.)" >&2
   exit 1
 fi
 
+# Rootfs delivery format is per-target (boot model): boota/TC8 flashes an
+# Android sparse image over fastboot; booti/C60 streams a zstd-compressed
+# ext4 image into system_a. Both start from the same raw rootfs.img above.
+if [[ "$BOOT_MODEL" == booti ]]; then
+  echo "===> [2.1/3] rootfs.img.zst (zstd, streamed into $ROOTFS_PARTITION)"
+  zstd -19 -f -T0 -q "$OUT/rootfs.img" -o "$OUT/rootfs.img.zst"
+  echo "       $(stat -c%s "$OUT/rootfs.img.zst") B compressed (from $rootfs_sz B)"
+  ROOTFS_SUM_FILE="rootfs.img.zst"
+else
 # Android sparse copy of rootfs.img for WebUSB fastboot provisioning. rootfs.img
 # is sized for the whole `userdata` partition (multi-GiB) but mostly zero blocks;
 # sparse encodes the zero runs as DONT_CARE chunks (no payload), so rootfs.simg
@@ -220,6 +240,7 @@ fi
 # the raw multi-GiB image. Round-tripped below in the verify step.
 echo "===> [2.1/3] rootfs.simg (Android sparse, fastboot flash userdata)"
 python3 "$REPO_ROOT/tools/mksparse.py" "$OUT/rootfs.img" "$OUT/rootfs.simg"
+ROOTFS_SUM_FILE="rootfs.simg"
 
 # Verify the sparse image: prefer a real simg2img round-trip (byte-identical to
 # the raw), else (no AOSP tools) assert the header fields + that the chunks'
@@ -246,11 +267,12 @@ else
   python3 "$REPO_ROOT/tools/mksparse.py" --verify "$OUT/rootfs.simg" "$OUT/rootfs.img" \
     || { echo "ERROR: rootfs.simg verify failed" >&2; exit 1; }
 fi
+fi   # end per-target rootfs delivery format
 
 # Lift Image + DTB up to the top of out/<profile>/ so release assembly
 # doesn't have to peek into out/<profile>/kernel/.
 cp "$KIMG" "$OUT/Image"
-cp "$DTB"  "$OUT/imx8mm-tc8.dtb"
+cp "$DTB"  "$OUT/$DTB_NAME"
 
 # Boot ramdisk: a minimal, auditable busybox initramfs (initramfs/init) that
 # mounts the rootfs READ-ONLY behind a tmpfs overlay by default (ephemeral
@@ -259,7 +281,7 @@ cp "$DTB"  "$OUT/imx8mm-tc8.dtb"
 # of the rootfs we just built (package-list.txt ships busybox-static), so no
 # new host deps. --no-ramdisk reverts to the empty-ramdisk (direct rw) model.
 RAMDISK_ARGS=()
-if [[ $NO_RAMDISK -ne 1 ]]; then
+if [[ $NO_RAMDISK -ne 1 && "$BOOT_MODEL" == boota ]]; then
   echo "===> [2.4/3] boot ramdisk (busybox initramfs — ro-root/overlay selector)"
   BUSYBOX="$OUT/.busybox"
   if [[ -d "$ROOTFS" ]]; then
@@ -322,50 +344,14 @@ for _p in "${_osp[@]}"; do
     EXTRA_SUM_FILES+=( "rootfs-$_p.img" "rootfs-$_p.simg" )
 done
 
-echo "===> [2.5/3] Android boot.img (boot_a) — kernel + initramfs + cmdline (v0)"
-python3 "$REPO_ROOT/tools/mkbootimg.py" \
-  --header_version 0 --pagesize 2048 \
-  --base 0x40000000 --kernel_offset 0x00080000 \
-  --ramdisk_offset 0x01000000 --tags_offset 0x00000100 \
-  --cmdline "$TC8_CMDLINE" \
-  --kernel "$OUT/Image" \
-  "${RAMDISK_ARGS[@]}" \
-  --output "$OUT/boot.img"
-
-echo "===> [2.5/3] Android dtbo.img (dtbo_a) — imx8mm-tc8.dtb in DTBO container"
-python3 "$REPO_ROOT/tools/mkdtboimg.py" create "$OUT/dtbo.img" \
-  --dtb "$OUT/imx8mm-tc8.dtb"
-
-# AVB metadata for the slot Android image. NXP `boota` loads vbmeta_a first
-# and refuses an image with NO vbmeta (INVALID_METADATA) even when UNLOCKED — it
-# only forgives signature/hash *mismatches*, not absent metadata. So we add an
-# AVB hash footer to boot.img + dtbo.img and emit a top-level vbmeta.img
-# bundling both hash descriptors. All use `--algorithm NONE`: unsigned but
-# structurally valid (boots only because the bootloader runs unlocked).
-#
-# add_hash_footer grows each image to EXACTLY its GPT partition size with the
-# footer at the tail (boot_a=98304 sectors=50331648 B=48 MiB; dtbo_a=8192
-# sectors=4194304 B=4 MiB). The ANDROID!/DTBO magic stays at offset 0, so the
-# images remain valid Android containers. NONE needs no external crypto — pure
-# python3 stdlib (hashlib SHA256 for the descriptor, no signing).
-BOOT_PARTITION_SIZE=50331648   # boot_a  = 98304 sectors (48 MiB)
-DTBO_PARTITION_SIZE=4194304    # dtbo_a  = 8192  sectors (4 MiB)
-
-echo "===> [2.6/3] AVB hash footer on boot.img (partition boot, ${BOOT_PARTITION_SIZE} B)"
-python3 "$REPO_ROOT/tools/avbtool" add_hash_footer \
-  --image "$OUT/boot.img" --partition_name boot \
-  --partition_size "$BOOT_PARTITION_SIZE" --algorithm NONE
-
-echo "===> [2.6/3] AVB hash footer on dtbo.img (partition dtbo, ${DTBO_PARTITION_SIZE} B)"
-python3 "$REPO_ROOT/tools/avbtool" add_hash_footer \
-  --image "$OUT/dtbo.img" --partition_name dtbo \
-  --partition_size "$DTBO_PARTITION_SIZE" --algorithm NONE
-
-echo "===> [2.6/3] AVB vbmeta.img (vbmeta_a) — hash descriptors for boot + dtbo, unsigned"
-python3 "$REPO_ROOT/tools/avbtool" make_vbmeta_image \
-  --output "$OUT/vbmeta.img" --algorithm NONE \
-  --include_descriptors_from_image "$OUT/boot.img" \
-  --include_descriptors_from_image "$OUT/dtbo.img"
+# --- boot images: per-target recipe (clean separation, dispatch on BOOT_MODEL).
+# tc8 = boota A/B slot images; c60 = booti + system_a. Each targets/<t>/boot.sh
+# defines pack_boot(), which produces the flashable boot artifacts + sets
+# BOOT_SUM_FILES. See targets/<t>/boot.sh and PROFILES-PLAN.md (M6).
+echo "===> [2.5/3] boot images (recipe: $BOOT_MODEL)"
+# shellcheck disable=SC1090
+. "$REPO_ROOT/targets/$TARGET_BOARD/boot.sh"
+pack_boot
 
 echo "===> [3/3] SHA256SUMS + version stamp"
 cat > "$OUT/version.env" <<EOF
@@ -376,14 +362,14 @@ TC8_PATCHES_VERSION=$TC8_PATCHES_VERSION
 TC8_BUILD_DATE=$TC8_BUILD_DATE
 TC8_BUILD_HOST=$TC8_BUILD_HOST
 EOF
-sum_files=( Image imx8mm-tc8.dtb boot.img dtbo.img vbmeta.img rootfs.img rootfs.simg version.env "${EXTRA_SUM_FILES[@]}" )
-[[ $NO_RAMDISK -ne 1 ]] && sum_files+=( initramfs.cpio.gz )
+sum_files=( Image "$DTB_NAME" "${BOOT_SUM_FILES[@]}" rootfs.img "$ROOTFS_SUM_FILE" version.env "${EXTRA_SUM_FILES[@]}" )
+[[ $NO_RAMDISK -ne 1 && "$BOOT_MODEL" == boota ]] && sum_files+=( initramfs.cpio.gz )
 ( cd "$OUT" && sha256sum "${sum_files[@]}" > SHA256SUMS && cat SHA256SUMS )
 
 echo "[OK] all artifacts in $OUT:"
 echo "       Image            raw kernel"
 echo "       imx8mm-tc8.dtb   raw device tree"
-if [[ $NO_RAMDISK -ne 1 ]]; then
+if [[ $NO_RAMDISK -ne 1 && "$BOOT_MODEL" == boota ]]; then
   echo "       initramfs.cpio.gz busybox ro-root/overlay initramfs (embedded in boot.img)"
 fi
 echo "       boot.img         Android boot.img v0 + AVB hash footer (NONE)   -> fastboot flash boot_a"

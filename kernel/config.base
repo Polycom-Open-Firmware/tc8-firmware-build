@@ -1,3 +1,7 @@
+# i.MX8MM SHARED kernel config — the platform base for ALL targets
+# (TC8, C60). Board-specific options live in targets/<t>.frag; the
+# composer merges base + the target fragment. See PROFILES-PLAN.md M6.
+#
 # TC8 (Polycom panel) config fragment.
 # Apply via: ./scripts/kconfig/merge_config.sh -m .config tc8.config
 # Then run: make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
@@ -50,7 +54,6 @@ CONFIG_DRM_FBDEV_EMULATION=y
 CONFIG_DRM_BRIDGE=y
 CONFIG_DRM_PANEL_BRIDGE=y
 CONFIG_DRM_PANEL=y
-CONFIG_DRM_PANEL_POLY_LCC=y
 
 # --- USB gadget: CDC ACM serial console + CDC NCM network on the data port ---
 # Without =y the function/configfs glue lives in /lib/modules which we don't
@@ -70,7 +73,6 @@ CONFIG_PWM_IMX27=y
 
 # --- Touch: Goodix GT9110 multi-touch on I2C2 (DT touchscreen@5d) ---
 # arm64 defconfig leaves this =m which never loads in our modules-less rootfs.
-CONFIG_TOUCHSCREEN_GOODIX=y
 CONFIG_HID_MULTITOUCH=y
 # i.MX 8M Mini display path: LCDIF + NWL MIPI-DSI bridge
 CONFIG_DRM_MXSFB=y
@@ -87,7 +89,6 @@ CONFIG_IMX_SDMA=y
 # arm64 defconfig has OVERLAY_FS=m; we ship no /lib/modules, so =m means the
 # initramfs overlay mount fails and every boot degrades to direct-rw. Force =y.
 # (TMPFS=y, BLK_DEV_INITRD=y, RD_GZIP=y already in defconfig.)
-CONFIG_OVERLAY_FS=y
 
 # --- Phase 2a: mount Android userdata (p15) without surgery ---
 # Android leaves the ext4 'quota' feature on; without these the kernel refuses.
@@ -178,7 +179,6 @@ CONFIG_CC_OPTIMIZE_FOR_SIZE=y
 # Boot console rotation — needed so fbcon=rotate:N in the kernel cmdline
 # isn't silently ignored. Matches the cage `-r` rotation in userspace so
 # boot logs land in the same orientation the kiosk renders into.
-CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y
 
 # --- CPU frequency scaling + thermal management (2026-07-07) ---------------
 # The SoC is fused speed-grade 3 / consumer = 1.8 GHz capable (OCOTP tester3

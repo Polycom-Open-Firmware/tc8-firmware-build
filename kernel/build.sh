@@ -15,12 +15,12 @@ set -euo pipefail
 LINUX=""
 PATCHES=""
 CONFIG=""
+TARGET=""
 JOBS="$(nproc)"
 OUT=""
 ARCH="arm64"
 CROSS="${CROSS_COMPILE:-aarch64-linux-gnu-}"
-DTB_NAME="imx8mm-tc8.dtb"
-DTB_SUBPATH="arch/arm64/boot/dts/freescale/$DTB_NAME"
+DTB_NAME="imx8mm-tc8.dtb"   # override with --dtb-name (per-target)
 
 usage() {
   cat <<EOF
@@ -50,6 +50,8 @@ for arg in "$@"; do
     --linux=*) LINUX="${arg#--linux=}";;
     --patches=*) PATCHES="${arg#--patches=}";;
     --config=*) CONFIG="${arg#--config=}";;
+    --target=*) TARGET="${arg#--target=}";;
+    --dtb-name=*) DTB_NAME="${arg#--dtb-name=}";;
     --jobs=*) JOBS="${arg#--jobs=}";;
     --out=*) OUT="${arg#--out=}";;
     --arch=*) ARCH="${arg#--arch=}";;
@@ -59,13 +61,35 @@ for arg in "$@"; do
   esac
 done
 
+# Derive AFTER arg parsing so --dtb-name takes effect (was computed from
+# the default up top, ignoring the override — cost the C60 DTB check).
+DTB_SUBPATH="arch/arm64/boot/dts/freescale/$DTB_NAME"
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ -n "$LINUX"   ]] || { echo "ERROR: --linux=DIR required" >&2; exit 1; }
 [[ -n "$PATCHES" ]] || { echo "ERROR: --patches=DIR required" >&2; exit 1; }
 [[ -d "$LINUX/arch/arm64" ]] || { echo "ERROR: $LINUX does not look like a kernel tree" >&2; exit 1; }
 [[ -d "$PATCHES" ]] || { echo "ERROR: patches dir not found: $PATCHES" >&2; exit 1; }
-[[ -n "$CONFIG" ]] || CONFIG="$REPO_ROOT/kernel/tc8.config"
-[[ -f "$CONFIG" ]] || { echo "ERROR: kernel config not found: $CONFIG" >&2; exit 1; }
+# Per-target patch layout (M6): if patches/<target>/ exists, apply from there
+# (patches/tc8/, patches/c60/). Falls back to the flat dir for old layouts.
+: "${TARGET:=tc8}"
+if [[ -d "$PATCHES/$TARGET" ]]; then
+  PATCHES="$PATCHES/$TARGET"
+  echo "[+] per-target patches: $PATCHES"
+fi
+# Config sources: --target=<t> merges config.base + targets/<t>.frag (the
+# converged, one-project-two-targets layout, M6). Legacy --config= (single
+# monolithic file) still works and wins if given. Default target: tc8.
+if [[ -z "$CONFIG" ]]; then
+  : "${TARGET:=tc8}"
+  CONFIG="$REPO_ROOT/kernel/config.base $REPO_ROOT/kernel/targets/$TARGET.frag"
+  for f in $CONFIG; do
+    [[ -f "$f" ]] || { echo "ERROR: kernel config fragment not found: $f" >&2; exit 1; }
+  done
+else
+  # legacy single-file --config
+  [[ -f "$CONFIG" ]] || { echo "ERROR: kernel config not found: $CONFIG" >&2; exit 1; }
+fi
 [[ -n "$OUT" ]] || OUT="$REPO_ROOT/out/kernel"
 
 mkdir -p "$OUT"
@@ -116,10 +140,22 @@ else
   done
 fi
 
+# Per-target firmware blobs for CONFIG_EXTRA_FIRMWARE (e.g. C60's BCM4356
+# wifi/BT + SDMA). If targets/<target>/firmware-blobs exists, stage it into
+# the tree's firmware/ before configuring. TC8 has none — no-op there.
+FW_SRC="$REPO_ROOT/targets/$TARGET/firmware-blobs"
+if [[ -d "$FW_SRC" ]]; then
+  echo "[+] staging $TARGET firmware blobs from $FW_SRC"
+  ( cd "$FW_SRC" && find . -type f ) | while read -r f; do
+    mkdir -p "$(dirname "firmware/$f")"
+    cp -f "$FW_SRC/$f" "firmware/$f"
+  done
+fi
+
 # Install config: start from upstream arm64 defconfig, then merge our
-# TC8-specific overlay (tc8.config is a small fragment, not a full config).
+# target config fragment(s).
 make ARCH="$ARCH" CROSS_COMPILE="$CROSS" defconfig
-scripts/kconfig/merge_config.sh -m .config "$CONFIG"
+scripts/kconfig/merge_config.sh -m .config $CONFIG   # base + target frag (unquoted: may be a list)
 make ARCH="$ARCH" CROSS_COMPILE="$CROSS" olddefconfig
 
 # Build
