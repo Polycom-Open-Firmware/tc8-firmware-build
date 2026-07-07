@@ -238,7 +238,9 @@ cp "$DTB"  "$OUT/imx8mm-tc8.dtb"
 # 0x40000000, kernel @ 0x40080000). The cmdline is our Debian kernel cmdline so
 # the DSI panel + root=PARTLABEL=userdata work; it must match the stage-2
 # board default `tc8_bootargs` (imx8mm_evk.c).
-TC8_CMDLINE="console=tty0 console=ttymxc1,115200 earlycon=ec_imx6q,0x30890000,115200 keep_bootcon panic=10 rw rootwait fw_devlink=permissive video=DSI-1:rotate=270 fbcon=rotate:3 vt.global_cursor_default=0 root=PARTLABEL=userdata"
+# console=tty0 LAST -> it is the primary console (/dev/console): systemd boot
+# status and kernel printk land on the PANEL once fbcon binds, not serial-only.
+TC8_CMDLINE="console=ttymxc1,115200 console=tty0 earlycon=ec_imx6q,0x30890000,115200 keep_bootcon panic=10 rw rootwait fw_devlink=permissive video=DSI-1:rotate=270 fbcon=rotate:3 systemd.show_status=true vt.global_cursor_default=0 root=PARTLABEL=userdata"
 
 echo "===> [2.5/3] Android boot.img (boot_a) — kernel + empty ramdisk + cmdline (v0)"
 python3 "$REPO_ROOT/tools/mkbootimg.py" \
