@@ -40,11 +40,26 @@ mechanics.
 
 ## What you get on the panel
 
-- 800×1280 DSI panel + backlight, etnaviv GC600/GC520 GPU acceleration
+- 800×1280 DSI panel + backlight, etnaviv GC600/GC520 GPU acceleration —
+  with the kernel boot crawl and systemd status on the panel, so a failing
+  boot tells you where it died
 - Goodix GT9110 multi-touch (`/dev/input/event0`)
-- TAS5751M class-D audio amplifier on SAI1 (`tas5751-audio` ALSA card; default volume capped at Master 80% / Speaker 75% — small panel speakers distort past that)
-- RTL8363NB-VB DSA switch + FEC ethernet (`lan` interface, 1 Gbps full-duplex)
-- Composite USB gadget on the data port: CDC ACM (`/dev/ttyACM0` with a root login), CDC NCM (USB Ethernet, panel at `10.55.0.1`, ssh straight off the cable), and MTP (`/data` exposed as a "Portable Device" for drag-and-drop)
+- TAS5751M class-D audio amplifier on SAI1 (`tas5751-audio` ALSA card; the
+  volume range is hard-capped in the kernel so **100% is safe** — full
+  scale used to brown out the panel on loud content)
+- RTL8363NB-VB DSA switch + FEC ethernet (`lan` interface, 1 Gbps
+  full-duplex) using the panel's **factory MAC address**, recovered from
+  the stock bootloader environment — stable DHCP leases out of the box
+- Composite USB gadget on the data port: CDC ACM (`/dev/ttyACM0` with a
+  root login), CDC NCM (USB Ethernet, panel at `10.55.0.1`, ssh straight
+  off the cable), and MTP exposing the persistent `/root` as a "Portable
+  Device" for drag-and-drop
+- A **sealed root filesystem**: the OS mounts read-only behind a tmpfs
+  overlay, so reboots always come up pristine; `tc8-rw`/`tc8-ro` toggle a
+  maintenance mode for permanent changes like `apt install`
+  ([docs/RO-ROOT.md](docs/RO-ROOT.md))
+- **Persistent `/root`**: root's home lives on a spare eMMC partition and
+  survives reboots *and* full reinstalls ([USING.md](USING.md))
 
 Everything boots into a fullscreen Wayland kiosk (`cage` + `cog`) — by
 default a bundled touch-tester; point `KIOSK_URL` at any page you like

@@ -8,9 +8,11 @@
 # Android path). The DTB lives in the dtbo partition (Android DTBO container),
 # NOT in boot.img's `second` — mirroring how stock pairs boot_X + dtbo_X. We emit:
 #
-#   out/<profile>/boot.img   Android boot.img v0 = kernel + EMPTY ramdisk +
-#                            our Debian cmdline (pagesize 2048, base 0x40000000,
-#                            kernel @ 0x40080000). No DTB inside.
+#   out/<profile>/boot.img   Android boot.img v0 = kernel + our minimal busybox
+#                            initramfs (ro-root/overlay boot selector, see
+#                            initramfs/init + docs/RO-ROOT.md) + our Debian
+#                            cmdline (pagesize 2048, base 0x40000000, kernel
+#                            @ 0x40080000). No DTB inside.
 #   out/<profile>/dtbo.img   imx8mm-tc8.dtb wrapped in an Android DTBO container
 #                            (magic 0xd7b7ab1e; inner FDT @ 0x40).
 #   out/<profile>/vbmeta.img AVB top-level vbmeta carrying hash descriptors for
@@ -61,6 +63,7 @@ LINUX=""; PATCHES=""; ROOTFS=""; PROFILE=""
 OUT=""
 SKIP_KERNEL=0
 SKIP_ROOTFS=0
+NO_RAMDISK=0
 # The stock A/B GPT's `userdata` partition = 13365248 sectors x 512 B (see
 # gpt-restore/README.md). rootfs.img is flashed there and MUST NOT be bigger:
 # the kernel refuses to mount an ext4 whose block count exceeds the device
@@ -89,6 +92,9 @@ OPTIONS (all optional — defaults wired to submodules from ./bootstrap.sh)
   --out=DIR          output dir                       (default: ./out/<profile>)
   --skip-kernel      do not rebuild kernel (use existing out/kernel/Image)
   --skip-rootfs      do not rebuild rootfs tarball (use existing rootfs/out/)
+  --no-ramdisk       build boot.img with an EMPTY ramdisk (pre-v0.5 behaviour:
+                     kernel mounts root=PARTLABEL=userdata rw directly; no
+                     ro-root/overlay, no maintenance mode)
   --jobs=N           parallelism for kernel build     (default: nproc)
   -h, --help         Show this help
 EOF
@@ -104,6 +110,7 @@ for arg in "$@"; do
     --out=*) OUT="${arg#--out=}";;
     --skip-kernel) SKIP_KERNEL=1;;
     --skip-rootfs) SKIP_ROOTFS=1;;
+    --no-ramdisk) NO_RAMDISK=1;;
     --jobs=*) JOBS="${arg#--jobs=}";;
     -h|--help) usage; exit 0;;
     *) echo "unknown arg: $arg" >&2; exit 1;;
@@ -230,25 +237,63 @@ fi
 cp "$KIMG" "$OUT/Image"
 cp "$DTB"  "$OUT/imx8mm-tc8.dtb"
 
-# The PRIMARY boot artifacts: an Android boot.img v0 (kernel + EMPTY ramdisk,
-# NO DTB inside) paired with a dtbo.img (DTB in an Android DTBO container). This
+# Boot ramdisk: a minimal, auditable busybox initramfs (initramfs/init) that
+# mounts the rootfs READ-ONLY behind a tmpfs overlay by default (ephemeral
+# writes), or direct-rw when maintenance mode is armed (flag file on facres /
+# tc8.rootfs=rw). Full design: docs/RO-ROOT.md. The static busybox comes out
+# of the rootfs we just built (package-list.txt ships busybox-static), so no
+# new host deps. --no-ramdisk reverts to the empty-ramdisk (direct rw) model.
+RAMDISK_ARGS=()
+if [[ $NO_RAMDISK -ne 1 ]]; then
+  echo "===> [2.4/3] boot ramdisk (busybox initramfs — ro-root/overlay selector)"
+  BUSYBOX="$OUT/.busybox"
+  if [[ -d "$ROOTFS" ]]; then
+    cp "$ROOTFS/usr/bin/busybox" "$BUSYBOX" 2>/dev/null \
+      || cp "$ROOTFS/bin/busybox" "$BUSYBOX" 2>/dev/null \
+      || { echo "ERROR: no usr/bin/busybox in $ROOTFS — is busybox-static in package-list.txt? (or use --no-ramdisk)" >&2; exit 1; }
+  else
+    tar -xOf "$ROOTFS" ./usr/bin/busybox > "$BUSYBOX" 2>/dev/null \
+      || tar -xOf "$ROOTFS" ./bin/busybox > "$BUSYBOX" 2>/dev/null \
+      || { echo "ERROR: no ./usr/bin/busybox in $ROOTFS — rebuild the rootfs (package-list.txt ships busybox-static) or use --no-ramdisk" >&2; exit 1; }
+  fi
+  python3 "$REPO_ROOT/tools/mkinitramfs.py" \
+    --init "$REPO_ROOT/initramfs/init" \
+    --busybox "$BUSYBOX" \
+    --out "$OUT/initramfs.cpio.gz"
+  rm -f "$BUSYBOX"
+  RAMDISK_ARGS=( --ramdisk "$OUT/initramfs.cpio.gz" )
+else
+  echo "===> [2.4/3] boot ramdisk SKIPPED (--no-ramdisk: kernel mounts root rw directly)"
+fi
+
+# The PRIMARY boot artifacts: an Android boot.img v0 (kernel + the initramfs
+# above, NO DTB inside) paired with a dtbo.img (DTB in an Android DTBO container). This
 # is the slotable Android model — flashed to the stock `boot_a` / `dtbo_a` GPT
 # partitions and booted by NXP `boota` (the established Android path) alongside
 # stock Android in slot A. Geometry matches stock (pagesize 2048, base
 # 0x40000000, kernel @ 0x40080000). The cmdline is our Debian kernel cmdline so
 # the DSI panel + root=PARTLABEL=userdata work; it must match the stage-2
 # board default `tc8_bootargs` (imx8mm_evk.c).
+# root=/rw are consumed by the initramfs (which decides ro-overlay vs
+# direct-rw itself); they ALSO keep the kernel's own fallback correct: if the
+# ramdisk is somehow absent the kernel direct-mounts userdata rw as before.
+# `rw` additionally stops systemd-remount-fs from remounting the overlay ro.
 # console=tty0 LAST -> it is the primary console (/dev/console): systemd boot
 # status and kernel printk land on the PANEL once fbcon binds, not serial-only.
 TC8_CMDLINE="console=ttymxc1,115200 console=tty0 earlycon=ec_imx6q,0x30890000,115200 keep_bootcon panic=10 rw rootwait fw_devlink=permissive video=DSI-1:rotate=270 fbcon=rotate:3 systemd.show_status=true vt.global_cursor_default=0 root=PARTLABEL=userdata"
 
-echo "===> [2.5/3] Android boot.img (boot_a) — kernel + empty ramdisk + cmdline (v0)"
+# NB ramdisk_offset 0x01000000 overlaps the (24 MiB) kernel on paper, but the
+# stage-2 boota relocates an overlapping ramdisk past the FDT (fdt_addr =
+# kernel_addr + 64 MiB) before copying — see fb_fsl_boot.c "ramdisk overlap
+# detected". Kept at the stock offset so the header matches stock images.
+echo "===> [2.5/3] Android boot.img (boot_a) — kernel + initramfs + cmdline (v0)"
 python3 "$REPO_ROOT/tools/mkbootimg.py" \
   --header_version 0 --pagesize 2048 \
   --base 0x40000000 --kernel_offset 0x00080000 \
   --ramdisk_offset 0x01000000 --tags_offset 0x00000100 \
   --cmdline "$TC8_CMDLINE" \
   --kernel "$OUT/Image" \
+  "${RAMDISK_ARGS[@]}" \
   --output "$OUT/boot.img"
 
 echo "===> [2.5/3] Android dtbo.img (dtbo_a) — imx8mm-tc8.dtb in DTBO container"
@@ -294,11 +339,16 @@ TC8_PATCHES_VERSION=$TC8_PATCHES_VERSION
 TC8_BUILD_DATE=$TC8_BUILD_DATE
 TC8_BUILD_HOST=$TC8_BUILD_HOST
 EOF
-( cd "$OUT" && sha256sum Image imx8mm-tc8.dtb boot.img dtbo.img vbmeta.img rootfs.img rootfs.simg version.env > SHA256SUMS && cat SHA256SUMS )
+sum_files=( Image imx8mm-tc8.dtb boot.img dtbo.img vbmeta.img rootfs.img rootfs.simg version.env )
+[[ $NO_RAMDISK -ne 1 ]] && sum_files+=( initramfs.cpio.gz )
+( cd "$OUT" && sha256sum "${sum_files[@]}" > SHA256SUMS && cat SHA256SUMS )
 
 echo "[OK] all artifacts in $OUT:"
 echo "       Image            raw kernel"
 echo "       imx8mm-tc8.dtb   raw device tree"
+if [[ $NO_RAMDISK -ne 1 ]]; then
+  echo "       initramfs.cpio.gz busybox ro-root/overlay initramfs (embedded in boot.img)"
+fi
 echo "       boot.img         Android boot.img v0 + AVB hash footer (NONE)   -> fastboot flash boot_a"
 echo "       dtbo.img         Android DTBO + AVB hash footer (NONE)          -> fastboot flash dtbo_a"
 echo "       vbmeta.img       AVB vbmeta, hash descriptors boot+dtbo (NONE)  -> fastboot flash vbmeta_a"

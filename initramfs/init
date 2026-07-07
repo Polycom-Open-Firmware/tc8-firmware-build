@@ -1,0 +1,144 @@
+#!/bin/busybox sh
+# TC8 initramfs /init — sealed-rootfs boot selector.
+#
+# Default ("overlay" mode): mount the rootfs partition (root=PARTLABEL=…,
+# normally `userdata`) READ-ONLY, lay a tmpfs-backed overlayfs over it and
+# switch_root into the merged tree. The system runs normally but every write
+# is ephemeral and evaporates on reboot.
+#
+# Maintenance ("rw" mode): mount the rootfs partition directly READ-WRITE
+# with no overlay — for apt install and other persistent changes (dpkg's db
+# and payload land on the same fs, so no upper/lower tearing). Selected by
+# either:
+#   - a sticky flag file `.tc8-rootfs-rw` at the root of the ext4 `facres`
+#     partition (set/cleared from the running system by tc8-rw / tc8-ro), or
+#   - `tc8.rootfs=rw` on the kernel cmdline (bench/build-time override;
+#     `tc8.rootfs=ro` forces overlay mode and beats the flag).
+#
+# Tunables on the cmdline:
+#   tc8.rootfs=ro|rw        boot mode override (default: flag file, else ro)
+#   tc8.overlay_size=SIZE   tmpfs upper size (default 50%)
+#
+# On any failure this falls back towards "still boots": overlay setup failure
+# degrades to a direct-rw mount (v0.4.x behaviour); only a missing/unmountable
+# rootfs drops to a busybox shell on the console.
+#
+# Keep this POSIX-sh + busybox-applets only, and keep it auditable.
+
+BB=/bin/busybox
+
+$BB mount -t proc     proc     /proc
+$BB --install -s /bin
+mount -t sysfs    sysfs    /sys
+mount -t devtmpfs devtmpfs /dev
+
+log() { echo "tc8-init: $*"; }
+
+rescue() {
+	log "$*"
+	log "dropping to a rescue shell (exit to reboot)"
+	sh
+	reboot -f
+}
+
+# ---------------------------------------------------------------- cmdline --
+rootlabel=userdata
+mode=
+overlay_size=50%
+for arg in $($BB cat /proc/cmdline); do
+	case "$arg" in
+	root=PARTLABEL=*) rootlabel=${arg#root=PARTLABEL=} ;;
+	tc8.rootfs=*)     mode=${arg#tc8.rootfs=} ;;
+	tc8.overlay_size=*) overlay_size=${arg#tc8.overlay_size=} ;;
+	esac
+done
+
+# ------------------------------------------------- find GPT parts by name --
+# No udev in here: resolve PARTLABEL via the kernel's PARTNAME uevent field.
+find_partlabel() { # $1 = GPT partition name -> echoes /dev/… or fails
+	for u in /sys/class/block/*/uevent; do
+		[ -f "$u" ] || continue
+		devname=; partname=
+		while IFS='=' read -r k v; do
+			case "$k" in
+			DEVNAME)  devname=$v ;;
+			PARTNAME) partname=$v ;;
+			esac
+		done < "$u"
+		if [ "$partname" = "$1" ] && [ -n "$devname" ]; then
+			echo "/dev/$devname"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# rootwait equivalent: the eMMC probes async; poll up to ~20 s.
+rootdev=
+tries=0
+while [ "$tries" -lt 100 ]; do
+	rootdev=$(find_partlabel "$rootlabel") && [ -b "$rootdev" ] && break
+	rootdev=
+	tries=$((tries + 1))
+	sleep 0.2
+done
+[ -n "$rootdev" ] || rescue "rootfs partition PARTLABEL=$rootlabel never appeared"
+log "rootfs: $rootdev (PARTLABEL=$rootlabel)"
+
+# ------------------------------------------------------- maintenance flag --
+if [ -z "$mode" ]; then
+	facres=$(find_partlabel facres) || facres=
+	if [ -n "$facres" ] && mount -t ext4 -o ro "$facres" /persist 2>/dev/null; then
+		[ -e /persist/.tc8-rootfs-rw ] && mode=rw
+		umount /persist
+	fi
+fi
+[ "$mode" = "rw" ] || mode=ro
+
+# ------------------------------------------------------------------ mount --
+if [ "$mode" = "rw" ]; then
+	log "MAINTENANCE MODE: mounting $rootdev direct-rw (writes are permanent)"
+	mount -t ext4 -o rw "$rootdev" /newroot \
+		|| rescue "direct-rw mount of $rootdev failed"
+else
+	log "sealed mode: ro lower + tmpfs overlay (upper size=$overlay_size)"
+	if ! mount -t ext4 -o ro "$rootdev" /lower; then
+		rescue "ro mount of $rootdev failed"
+	fi
+	overlay_ok=
+	if mount -t tmpfs -o "size=$overlay_size,mode=0755" tc8-overlay /rw; then
+		mkdir -p /rw/upper /rw/work
+		if mount -t overlay \
+			-o "lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work" \
+			tc8-root /newroot; then
+			overlay_ok=1
+		fi
+	fi
+	if [ -n "$overlay_ok" ]; then
+		# Expose the raw layers inside the new root for inspection
+		# (`find /mnt/.tc8/rw/upper` = what changed this boot). These
+		# mkdirs land in the tmpfs upper.
+		mkdir -p /newroot/mnt/.tc8/lower /newroot/mnt/.tc8/rw
+		mount -o move /lower /newroot/mnt/.tc8/lower || true
+		mount -o move /rw    /newroot/mnt/.tc8/rw    || true
+	else
+		# Degrade to the pre-overlay behaviour rather than not booting.
+		log "overlay setup FAILED — falling back to direct-rw mount"
+		umount /rw    2>/dev/null
+		umount /lower 2>/dev/null
+		mount -t ext4 -o rw "$rootdev" /newroot \
+			|| rescue "fallback direct-rw mount of $rootdev failed"
+	fi
+fi
+
+# ------------------------------------------------------------ switch_root --
+# The rootfs tarball ships without /dev,/proc,/sys,/run (build excludes
+# them); in overlay mode the mkdirs land in the tmpfs upper, in rw mode on
+# the fs (systemd would create them anyway).
+mkdir -p /newroot/dev /newroot/proc /newroot/sys /newroot/run
+mount -o move /dev /newroot/dev || true
+umount /proc
+umount /sys
+
+exec switch_root -c /dev/console /newroot /sbin/init
+rescue "switch_root failed"
