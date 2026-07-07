@@ -235,4 +235,5 @@ as `rootfs-<name>.{img,simg}` (`TC8_OS_PROFILES` lands in `version.env`,
 `kiosk`; plain `rootfs.{img,simg}` always alias it so existing tooling and
 the provisioner keep working. The special profile `bare` is the untouched
 base. Full architecture, wizard integration, and roadmap:
-`polycom_dev/PROFILES-PLAN.md`.
+`polycom_dev/PROFILES-PLAN.md`; developer cookbook (creating profiles/apps):
+[packages/DEVELOPING.md](https://github.com/Polycom-Open-Firmware/packages/blob/main/DEVELOPING.md).
