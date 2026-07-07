@@ -1,4 +1,4 @@
-# tc8-firmware-build — build card
+# poly-firmware-build — build card
 
 Builds the **TC8 (proline_exec)** kernel + DTB + Debian rootfs. Profiles
 `emmc` (slotable Android image for the `boota` path) and `nfs` (TFTP

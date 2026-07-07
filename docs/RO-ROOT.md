@@ -61,7 +61,7 @@ stage-2 boota ─ AVB(NONE, unlocked) ─ booti Image + initramfs + dtb
           tc8.rootfs=ro|rw override, tc8.overlay_size=… (default 50%)
        3. wait ≤20 s for the PARTLABEL=userdata partition
           (PARTNAME= in /sys/class/block/*/uevent — no udev in here)
-       4. mode: cmdline override, else flag file `.tc8-rootfs-rw` at the
+       4. mode: cmdline override, else flag file `.poly-rootfs-rw` at the
           root of the ext4 `facres` partition (mounted ro, then umounted)
        5a. sealed:   mount userdata RO at /lower, tmpfs at /rw,
                      overlay(lower,upper,work) → /newroot,
@@ -88,7 +88,7 @@ Pieces:
 - `kernel/tc8.config` — `CONFIG_OVERLAY_FS=y` (arm64 defconfig has `=m`;
   we ship no /lib/modules, so `=m` would silently degrade every boot to
   the direct-rw fallback).
-- tc8-rootfs repo — `tc8-persist-root.{sh,service}`, `tc8-rw`, `tc8-ro`,
+- poly-rootfs repo — `tc8-persist-root.{sh,service}`, `tc8-rw`, `tc8-ro`,
   `tc8-mode`, `etc/profile.d/tc8-mode.sh` (maintenance-mode login banner).
 
 ## How to make persistent changes (apt install etc.)
@@ -102,7 +102,7 @@ apt clean && rm -rf /var/lib/apt/lists/*    # optional: keep the image lean
 tc8-ro --reboot          # reseal + reboot
 ```
 
-- The flag (`/persist/.tc8-rootfs-rw`) is **sticky**: it survives reboots
+- The flag (`/persist/.poly-rootfs-rw`) is **sticky**: it survives reboots
   (multi-reboot maintenance sessions work, e.g. a package wanting a
   restart) and even reflashes — `tc8-ro` is an explicit step. `tc8-mode`
   shows current + next-boot mode; every interactive login warns while

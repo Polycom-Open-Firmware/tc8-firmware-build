@@ -31,7 +31,7 @@ USAGE
 
 REQUIRED
   --linux=DIR        Path to vanilla linux-6.6 source tree
-  --patches=DIR      Path to tc8-kernel-patches/patches directory (*.patch)
+  --patches=DIR      Path to poly-kernel-patches/patches directory (*.patch)
 
 OPTIONS
   --config=FILE      Kernel .config to install (default: kernel/tc8.config in this repo)

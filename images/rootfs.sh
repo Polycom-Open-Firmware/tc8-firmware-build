@@ -20,7 +20,7 @@ OUT=""
 # Anything from ~1 GiB (just the base Debian) up to this cap works; pick
 # smaller for faster fastboot pushes.
 IMAGE_SIZE="6843006976"
-LABEL="tc8-rootfs"
+LABEL="poly-rootfs"
 
 usage() {
   cat <<EOF
@@ -66,7 +66,7 @@ trap cleanup EXIT
 if [[ -d "$ROOTFS" ]]; then
   ROOTFS_DIR="$ROOTFS"
 else
-  WORK="$(mktemp -d -t tc8-rootfs.XXXXXX)"
+  WORK="$(mktemp -d -t poly-rootfs.XXXXXX)"
   ROOTFS_DIR="$WORK/rootfs"
   mkdir -p "$ROOTFS_DIR"
   echo "[+] extracting $ROOTFS -> $ROOTFS_DIR"

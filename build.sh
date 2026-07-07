@@ -86,7 +86,7 @@ REQUIRED
 
 OPTIONS (all optional — defaults wired to submodules from ./bootstrap.sh)
   --linux=DIR        Vanilla linux-6.6 source tree    (default: ./linux-6.6)
-  --patches=DIR      tc8-kernel-patches/patches       (default: ./kernel-patches/patches)
+  --patches=DIR      poly-kernel-patches/patches       (default: ./kernel-patches/patches)
   --rootfs=PATH      rootfs tarball or directory      (default: ./rootfs/out/rootfs.tar.gz; auto-built if missing)
   --os-profile=LIST  device-role profile(s), comma-sep (default: kiosk).
                      Each becomes rootfs-<name>.{img,simg} built from the

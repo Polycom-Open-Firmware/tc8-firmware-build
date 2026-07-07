@@ -76,8 +76,8 @@ artifacts. Follow [QUICKSTART.md](QUICKSTART.md).
 **Build from source:**
 
 ```bash
-git clone --recurse-submodules https://github.com/Polycom-Open-Firmware/tc8-firmware-build.git
-cd tc8-firmware-build
+git clone --recurse-submodules https://github.com/Polycom-Open-Firmware/poly-firmware-build.git
+cd poly-firmware-build
 ./bootstrap.sh
 sudo ./build.sh --profile=emmc     # → out/emmc/
 ```

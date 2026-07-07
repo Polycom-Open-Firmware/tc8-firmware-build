@@ -40,8 +40,8 @@ ls /proc/sys/fs/binfmt_misc/qemu-aarch64    # should exist
 ## 2. Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/Polycom-Open-Firmware/tc8-firmware-build.git
-cd tc8-firmware-build
+git clone --recurse-submodules https://github.com/Polycom-Open-Firmware/poly-firmware-build.git
+cd poly-firmware-build
 ./bootstrap.sh                              # downloads vanilla linux-6.6
 ```
 
