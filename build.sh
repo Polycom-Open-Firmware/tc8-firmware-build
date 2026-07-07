@@ -68,7 +68,7 @@ NO_RAMDISK=0
 # gpt-restore/README.md). rootfs.img is flashed there and MUST NOT be bigger:
 # the kernel refuses to mount an ext4 whose block count exceeds the device
 # ("bad geometry"). Default = fill it exactly.
-USERDATA_PARTITION_SIZE=6843006976
+USERDATA_PARTITION_SIZE=""   # set from target.env (ROOTFS_PARTITION_SIZE)
 ROOTFS_IMG_SIZE=""
 JOBS="$(nproc)"
 
@@ -111,6 +111,7 @@ for arg in "$@"; do
     --patches=*) PATCHES="${arg#--patches=}";;
     --rootfs=*) ROOTFS="${arg#--rootfs=}";;
     --os-profile=*) OS_PROFILES="${arg#--os-profile=}";;
+    --target=*) TARGET_BOARD="${arg#--target=}";;
     --profile=*) PROFILE="${arg#--profile=}";;
     --rootfs-size=*) ROOTFS_IMG_SIZE="${arg#--rootfs-size=}";;
     --out=*) OUT="${arg#--out=}";;
@@ -140,6 +141,15 @@ fi
 
 [[ -n "$PROFILE" ]] || { echo "ERROR: --profile= required" >&2; exit 1; }
 : "${OS_PROFILES:=kiosk}"
+# Target board (--target=tc8|c60): sources the board delta from targets/<t>/.
+: "${TARGET_BOARD:=tc8}"
+TENV="$REPO_ROOT/targets/$TARGET_BOARD/target.env"
+[[ -f "$TENV" ]] || { echo "ERROR: unknown --target '$TARGET_BOARD' (no $TENV)" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$TENV"
+echo "[+] target: $TARGET_NAME  dtb=$DTB_NAME  rootfs->$ROOTFS_PARTITION (${ROOTFS_PARTITION_SIZE} B)  boot=$BOOT_MODEL"
+USERDATA_PARTITION_SIZE="$ROOTFS_PARTITION_SIZE"
+: "${ROOTFS_IMG_SIZE:=$ROOTFS_IMG_DEFAULT_SIZE}"
 
 # Default OUT to per-profile subdir so emmc and nfs targets coexist.
 if [[ -z "$OUT" ]]; then
@@ -186,12 +196,12 @@ mkdir -p "$OUT"
 
 KERNEL_OUT="$OUT/kernel"
 KIMG="$KERNEL_OUT/Image"
-DTB="$KERNEL_OUT/imx8mm-tc8.dtb"
+DTB="$KERNEL_OUT/$DTB_NAME"
 
 if [[ $SKIP_KERNEL -ne 1 ]]; then
   echo "===> [1/3] kernel"
   "$REPO_ROOT/kernel/build.sh" --linux="$LINUX" --patches="$PATCHES" \
-    --jobs="$JOBS" --out="$KERNEL_OUT"
+    --target="$KERNEL_TARGET" --jobs="$JOBS" --out="$KERNEL_OUT"
 else
   echo "===> [1/3] kernel SKIPPED (--skip-kernel)"
   [[ -f "$KIMG" ]] || { echo "ERROR: $KIMG missing; cannot --skip-kernel" >&2; exit 1; }
@@ -206,9 +216,10 @@ rootfs_args=( --rootfs="$ROOTFS" --out="$OUT/rootfs.img" --image-size="$ROOTFS_I
 # Guard: an ext4 bigger than userdata flashes but never mounts ("bad geometry").
 rootfs_sz=$(stat -c %s "$OUT/rootfs.img")
 if (( rootfs_sz > USERDATA_PARTITION_SIZE )); then
-  echo "ERROR: rootfs.img is $rootfs_sz B but the userdata partition is only" \
-       "$USERDATA_PARTITION_SIZE B — the panel would fail to mount it." \
-       "Use --rootfs-size=$USERDATA_PARTITION_SIZE or smaller." >&2
+  echo "ERROR: rootfs.img is $rootfs_sz B but the $ROOTFS_PARTITION partition on" \
+       "$TARGET_NAME is only $ROOTFS_PARTITION_SIZE B — it would not mount." \
+       "Trim the profile or use --rootfs-size=$ROOTFS_IMG_DEFAULT_SIZE or smaller." \
+       "($TARGET_NAME budget is a HARD limit — the build refuses, never truncates.)" >&2
   exit 1
 fi
 
@@ -250,7 +261,7 @@ fi
 # Lift Image + DTB up to the top of out/<profile>/ so release assembly
 # doesn't have to peek into out/<profile>/kernel/.
 cp "$KIMG" "$OUT/Image"
-cp "$DTB"  "$OUT/imx8mm-tc8.dtb"
+cp "$DTB"  "$OUT/$DTB_NAME"
 
 # Boot ramdisk: a minimal, auditable busybox initramfs (initramfs/init) that
 # mounts the rootfs READ-ONLY behind a tmpfs overlay by default (ephemeral
