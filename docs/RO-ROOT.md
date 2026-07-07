@@ -135,7 +135,7 @@ through the bind at shutdown.
 
 ## Interactions audited
 
-- **tc8-config.service** — applies the cache-partition blob **every boot**
+- **tc8-config.service** — applies the cache-partition blob **once per unique blob** (sha-gated; on unchanged sealed reboots it silently restores a persisted /etc snapshot from facres rather than re-applying)
   (it already re-runs; under the overlay its `/etc` writes are ephemeral, so
   each boot = pristine baked `/etc` + blob, fully deterministic). Ordering
   unchanged: after tc8-persist-root, before networkd/kiosk. In maintenance

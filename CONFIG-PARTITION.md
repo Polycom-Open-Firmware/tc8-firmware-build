@@ -45,7 +45,7 @@ little-endian. The config blob sits at offset 0; a staged bootloader
 - The device verifies magic + sha256 before applying either half. A
   fresh or empty `cache` (no magic) or a corrupt, half-written blob is
   ignored — the unit keeps its current config and bootloader. Applied
-  every boot (idempotent); the blob is not cleared.
+  ONCE per unique blob (sha-gated, marker on facres); the blob is not cleared. A re-provision writes a new blob → re-applies. In sealed mode the applied /etc is persisted + restored so it survives reboots without re-running.
 - Cache is 1 GiB, so even with a ~3 MiB stage-2 the composite is tiny;
   fastboot writes from offset 0, no need to write the whole partition.
 
