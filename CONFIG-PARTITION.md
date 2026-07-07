@@ -117,6 +117,9 @@ Status: **✅ implemented** in the v1 reader (`rootfs/etc/tc8-config/apply-confi
 | `VLAN_ID` | ▢ | tag the `lan` port (DSA switch supports it) | `40` |
 | `HTTP_PROXY` | ▢ | proxy for kiosk + updates | `http://proxy:3128` |
 | `NTP_SERVER` | ✅ | `timesyncd.conf` `NTP=` | `192.168.1.1` |
+| `WIFI_SSID` | ✅ | configure `wlan0` with `wpa_supplicant` + DHCP via `systemd-networkd` | `Corp-Guest` |
+| `WIFI_PASSWORD` | ✅ | WPA/WPA2 passphrase for `WIFI_SSID`; omit for open Wi-Fi | `s3cretwifi` |
+| `WIFI_COUNTRY` | ✅ | optional regulatory country in `wpa_supplicant` config | `US` |
 
 ### Access / credentials
 | key | st | effect | example |
