@@ -97,6 +97,14 @@ Status: **✅ implemented** in the v1 reader (`rootfs/etc/tc8-config/apply-confi
 | `DEVICE_NAME` | ✅ | `/etc/hostname` + `hostname` | `lobby-east` |
 | `LOCATION` | ▢ | inventory label (motd / a `/etc/tc8-location`) | `Bldg A / Lobby` |
 
+### Application (device role)
+The wizard's Application picker writes this; `apply-config` sets the systemd
+default target accordingly and records `/etc/tc8-profile`. Baked role packages
+(`poly-<device>-profile-<id>`) supply each role's apps — nothing is fetched.
+| key | st | effect | example |
+|-----|----|--------|---------|
+| `PROFILE` | ✅ | device role. `kiosk` → `graphical.target` (fullscreen `kiosk.service`); `dev` → `multi-user.target` + tty1 autologin + ssh (no kiosk lock); `smart-speaker` (C60) → `multi-user.target`, enables the voice app service if baked, else console. Unset → `kiosk`. | `dev` |
+
 ### Kiosk / display
 | key | st | effect | example |
 |-----|----|--------|---------|

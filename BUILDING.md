@@ -227,7 +227,7 @@ A native-host build is otherwise straightforward and recommended.
 
 Not to be confused with `--profile=emmc|nfs` (the *build target*): an
 **OS profile** is the device's role — what it boots into. Each profile is
-a metapackage `op-tc8-profile-<name>` from the
+a metapackage `poly-tc8-profile-<name>` from the
 [OpenPolycom apt archive](https://github.com/Polycom-Open-Firmware/apt),
 installed into an isolated copy of the shared debootstrap base and packed
 as `rootfs-<name>.{img,simg}` (`TC8_OS_PROFILES` lands in `version.env`,

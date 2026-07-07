@@ -63,7 +63,7 @@ way. Full design and failure modes: [docs/RO-ROOT.md](docs/RO-ROOT.md).
 Besides Debian's archive, every image trusts the
 **OpenPolycom package archive** out of the box (`op-*` packages: device
 profiles, first-party apps, and eventually a Chromium built for this CPU) —
-`apt install op-tc8-profile-kiosk` works in maintenance mode with no extra
+`apt install poly-tc8-profile-kiosk` works in maintenance mode with no extra
 setup. Archive conventions:
 [Polycom-Open-Firmware/apt](https://github.com/Polycom-Open-Firmware/apt).
 
