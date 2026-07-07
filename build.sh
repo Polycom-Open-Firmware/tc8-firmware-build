@@ -201,7 +201,7 @@ DTB="$KERNEL_OUT/$DTB_NAME"
 if [[ $SKIP_KERNEL -ne 1 ]]; then
   echo "===> [1/3] kernel"
   "$REPO_ROOT/kernel/build.sh" --linux="$LINUX" --patches="$PATCHES" \
-    --target="$KERNEL_TARGET" --jobs="$JOBS" --out="$KERNEL_OUT"
+    --target="$KERNEL_TARGET" --dtb-name="$DTB_NAME" --jobs="$JOBS" --out="$KERNEL_OUT"
 else
   echo "===> [1/3] kernel SKIPPED (--skip-kernel)"
   [[ -f "$KIMG" ]] || { echo "ERROR: $KIMG missing; cannot --skip-kernel" >&2; exit 1; }

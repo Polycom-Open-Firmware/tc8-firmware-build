@@ -20,7 +20,7 @@ JOBS="$(nproc)"
 OUT=""
 ARCH="arm64"
 CROSS="${CROSS_COMPILE:-aarch64-linux-gnu-}"
-DTB_NAME="imx8mm-tc8.dtb"
+DTB_NAME="imx8mm-tc8.dtb"   # override with --dtb-name (per-target)
 DTB_SUBPATH="arch/arm64/boot/dts/freescale/$DTB_NAME"
 
 usage() {
@@ -52,6 +52,7 @@ for arg in "$@"; do
     --patches=*) PATCHES="${arg#--patches=}";;
     --config=*) CONFIG="${arg#--config=}";;
     --target=*) TARGET="${arg#--target=}";;
+    --dtb-name=*) DTB_NAME="${arg#--dtb-name=}";;
     --jobs=*) JOBS="${arg#--jobs=}";;
     --out=*) OUT="${arg#--out=}";;
     --arch=*) ARCH="${arg#--arch=}";;
