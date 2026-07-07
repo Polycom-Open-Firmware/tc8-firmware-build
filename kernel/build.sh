@@ -75,8 +75,10 @@ if [[ -z "$CONFIG" ]]; then
   for f in $CONFIG; do
     [[ -f "$f" ]] || { echo "ERROR: kernel config fragment not found: $f" >&2; exit 1; }
   done
+else
+  # legacy single-file --config
+  [[ -f "$CONFIG" ]] || { echo "ERROR: kernel config not found: $CONFIG" >&2; exit 1; }
 fi
-[[ -f "$CONFIG" ]] || { echo "ERROR: kernel config not found: $CONFIG" >&2; exit 1; }
 [[ -n "$OUT" ]] || OUT="$REPO_ROOT/out/kernel"
 
 mkdir -p "$OUT"
