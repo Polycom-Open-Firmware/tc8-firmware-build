@@ -52,7 +52,7 @@ default a bundled touch-tester; point `KIOSK_URL` at any page you like
 ## The Polycom Trio C60
 
 The round conference phone from the same family — touchscreen, a
-three-element mic array, a proper speaker, Wi-Fi/BT, and HDMI-in. Same SoC
+mic array, a proper speaker, Wi-Fi/BT, and HDMI-in. Same SoC
 as the TC8, so it runs the same Debian stack. Hardware bring-up is done
 (display, touch, audio in/out, LEDs, Wi-Fi/BT, cameras) and the build is
 fully converged here: `--target=c60` produces the complete `booti` image
