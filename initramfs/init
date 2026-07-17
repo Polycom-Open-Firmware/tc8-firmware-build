@@ -109,11 +109,12 @@ cfgdev=$(find_partlabel cache) || cfgdev=
 if [ -n "$cfgdev" ] && [ "$(dd if=$cfgdev bs=8 count=1 2>/dev/null)" = "TC8CFGv1" ]; then
 	log "config blob staged in cache — applying to the real rootfs pre-seal"
 	if mount -t ext4 -o rw "$rootdev" /newroot 2>/dev/null; then
+		mkdir -p /newroot/dev /newroot/proc /newroot/sys
 		mount -o bind /dev  /newroot/dev
 		mount -o bind /proc /newroot/proc
 		mount -o bind /sys  /newroot/sys
 		if TC8_CFG_DEV=$cfgdev chroot /newroot /etc/tc8-config/apply-config.sh; then
-			log "config applied and blob consumed"
+		log "config applied and blob consumed"
 		else
 			log "config apply FAILED — blob left in place for next boot"
 		fi
