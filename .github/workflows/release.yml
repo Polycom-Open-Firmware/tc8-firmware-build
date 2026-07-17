@@ -1,8 +1,10 @@
 name: Release build
 
-# Triggers on tag push (v*). Builds raw `Image`, `imx8mm-tc8.dtb`, and
-# `rootfs.img` (plain ext4, no AVB) and attaches them as release assets.
-# Runs on a free GitHub-hosted Ubuntu runner.
+# Triggers on tag push (v*). Builds the TC8 emmc target with the kiosk profile
+# and chromium engine baked in, then attaches the wizard-flashable asset set
+# (boota path: boot.img / dtbo.img / vbmeta.img / rootfs.simg) plus the fixed
+# stage-2 u-boot and GPT-restore blobs. The TC8 wizard fabricates its manifest
+# from these well-known names. Runs on a free GitHub-hosted Ubuntu runner.
 on:
   push:
     tags:
@@ -21,6 +23,13 @@ jobs:
           submodules: recursive
           fetch-depth: 0   # so `git describe --tags` works inside build.sh
 
+      - name: Free disk space (6.4 GiB rootfs + chromium need headroom)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h /
+
       - name: Install host prereqs (matches BUILDING.md)
         run: |
           sudo apt-get update
@@ -29,25 +38,16 @@ jobs:
               gcc-aarch64-linux-gnu \
               qemu-user-static binfmt-support \
               debootstrap rsync \
-              e2fsprogs python3 \
-              zstd
+              e2fsprogs python3 zstd
 
       - name: Bootstrap kernel tree
         run: ./bootstrap.sh
 
-      - name: Build emmc target
-        run: sudo --preserve-env=PATH ./build.sh --profile=emmc
-
-      - name: Assemble release assets
+      - name: Build emmc target (kiosk profile + chromium engine)
         run: |
-          set -e
-          mkdir -p assets
-          cp out/emmc/Image             assets/Image
-          cp out/emmc/imx8mm-tc8.dtb    assets/imx8mm-tc8.dtb
-          cp out/emmc/version.env       assets/version.env
-          sudo zstd -19 -T0 -q -f out/emmc/rootfs.img -o assets/rootfs.img.zst
-          ( cd assets && sha256sum * > SHA256SUMS )
-          ls -lh assets/
+          sudo --preserve-env=PATH ./build.sh \
+              --target=tc8 --profile=emmc \
+              --os-profile=kiosk --extra-pkgs=poly-app-chromium
 
       - name: Sanity check kernel size under BOOTM_LEN cap
         run: |
@@ -58,6 +58,22 @@ jobs:
           fi
           echo "Image size OK: $size bytes"
 
+      - name: Assemble wizard-flashable release assets
+        run: |
+          set -e
+          mkdir -p assets
+          # OS images the wizard flashes (boota path)
+          cp out/emmc/boot.img        assets/boot.img
+          cp out/emmc/dtbo.img        assets/dtbo.img
+          cp out/emmc/vbmeta.img      assets/vbmeta.img
+          cp out/emmc/rootfs.simg     assets/rootfs.simg
+          cp out/emmc/version.env     assets/version.env
+          # fixed blobs (committed in-repo): stage-2 chainload u-boot + GPT restore
+          cp prebuilt/tc8-stage2-uboot.bin   assets/tc8-stage2-uboot.bin
+          cp gpt-restore/tc8-gpt-restore.simg assets/tc8-gpt-restore.simg
+          ( cd assets && sha256sum * > SHA256SUMS )
+          ls -lh assets/
+
       - name: Create GitHub release with all assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,13 +82,16 @@ jobs:
           gh release create "$tag" \
               --title "$tag" \
               --generate-notes \
-              assets/Image \
-              assets/imx8mm-tc8.dtb \
-              assets/rootfs.img.zst \
+              assets/boot.img \
+              assets/dtbo.img \
+              assets/vbmeta.img \
+              assets/rootfs.simg \
+              assets/tc8-stage2-uboot.bin \
+              assets/tc8-gpt-restore.simg \
               assets/version.env \
               assets/SHA256SUMS
 
-      - name: Upload artifacts (also kept on the workflow run for debugging)
+      - name: Upload assets to the workflow run (debugging)
         uses: actions/upload-artifact@v4
         with:
           name: poly-firmware-${{ github.ref_name }}
