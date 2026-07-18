@@ -52,7 +52,7 @@ stage-2 boota ─ AVB(NONE, unlocked) ─ booti Image + initramfs + dtb
           tc8.rootfs=ro|rw override, tc8.overlay_size=… (default 50%)
        3. wait ≤20 s for the PARTLABEL=userdata partition
           (PARTNAME= in /sys/class/block/*/uevent — no udev in here)
-       4. mode: cmdline override, else flag file `.poly-rootfs-rw` at the
+       4. mode: cmdline override, else flag file `.tc8-rootfs-rw` at the
           root of the ext4 `facres` partition (mounted ro, then umounted)
        5a. sealed:   mount userdata RO at /lower, tmpfs at /rw,
                      overlay(lower,upper,work) → /newroot,
@@ -76,9 +76,9 @@ Pieces:
 - `build.sh [2.4/3]` — builds `out/<profile>/initramfs.cpio.gz` and feeds
   `mkbootimg --ramdisk`. `--no-ramdisk` reproduces the pre-v0.5 empty-ramdisk
   boot.img (kernel direct-mounts userdata rw).
-- `kernel/tc8.config` — `CONFIG_OVERLAY_FS=y` (arm64 defconfig has `=m`;
-  we ship no /lib/modules, so `=m` would silently degrade every boot to
-  the direct-rw fallback).
+- `kernel/targets/tc8.frag` — `CONFIG_OVERLAY_FS=y` (arm64 defconfig has
+  `=m`; the rootfs ships no /lib/modules, so `=m` would silently degrade
+  every boot to the direct-rw fallback).
 - poly-rootfs repo — `tc8-persist-root.{sh,service}`, `tc8-rw`, `tc8-ro`,
   `tc8-mode`, `etc/profile.d/tc8-mode.sh` (maintenance-mode login banner).
 
@@ -93,7 +93,7 @@ apt clean && rm -rf /var/lib/apt/lists/*    # optional: keep the image lean
 tc8-ro --reboot          # reseal + reboot
 ```
 
-- The flag (`/persist/.poly-rootfs-rw`) is **sticky**: it survives reboots
+- The flag (`/persist/.tc8-rootfs-rw`) is **sticky**: it survives reboots
   (multi-reboot maintenance sessions work, e.g. a package wanting a
   restart) and even reflashes — `tc8-ro` is an explicit step. `tc8-mode`
   shows current + next-boot mode; every interactive login warns while
@@ -137,10 +137,10 @@ through the bind at shutdown.
 - **/data (kiosk cache, MTP export)** — `/data` on this image is
   `/dev/mmcblk2p15` = **the userdata partition itself**, i.e. the rootfs
   mounted a second time. In sealed mode that rw mount fails (superblock is
-  held ro by the overlay lower) — `kiosk.service`'s ExecStartPre already
-  `|| true`s it and then `install -d`s the dirs, which now land on the
-  overlay: kiosk cache and the MTP "Panel storage" become **ephemeral** in
-  sealed mode, and work exactly as before in maintenance mode. Same story
+  held ro by the overlay lower) — `kiosk.service`'s ExecStartPre
+  `|| true`s it and then `install -d`s the dirs, which land on the
+  overlay: kiosk cache and the MTP "Panel storage" are **ephemeral** in
+  sealed mode and persistent in maintenance mode. Same story
   for `kiosk-config.service`'s optional `/data/poly-kiosk/config` override
   (use the cache-blob config path instead, or maintenance mode).
 - **alsa** — `alsa-restore` reads the baked safe-volume state from the ro
@@ -164,31 +164,20 @@ through the bind at shutdown.
 | ramdisk absent from boot.img | kernel falls back to cmdline `root=…` rw direct-mount — boots direct-rw, no overlay |
 | `/init` crashes / rootfs partition never appears | rescue busybox shell on console (serial + panel); `exit` reboots (`panic=10` guards the no-console case) |
 | facres missing | initramfs: no flag possible → always sealed. tc8-persist-root exits 0 → `/root` non-persistent. `tc8-rw` refuses with a clear error (cmdline `tc8.rootfs=rw` still available) |
-| facres corrupt / not ext4 | initramfs ro-mount fails → sealed boot; then tc8-persist-root **reformats** facres (mkfs.ext4, prior-art behaviour — facres content is expendable by design) and persistence resumes empty |
+| facres corrupt / not ext4 | initramfs ro-mount fails → sealed boot; then tc8-persist-root **reformats** facres (mkfs.ext4 — facres content is expendable by design) and persistence resumes empty |
 | tmpfs upper fills (default 50% RAM, `tc8.overlay_size=` to tune) | writes get ENOSPC; system state on lower unharmed; reboot clears |
 | maintenance flag forgotten | sticky by design; login banner + `tc8-mode` surface it; it even survives reflash (facres untouched) — run `tc8-ro` |
 | power loss during maintenance apt | same risk as any rw Linux — ext4 journal replays; worst case reflash `userdata` (the sealed default makes this window rare) |
 
-## Bench test checklist — HARDWARE-VERIFIED 2026-07-06
+## Regression checklist
 
-> Run on the bench unit, fully remotely (stage-2 env fastboot one-shot +
-> `fastboot` from the rig host): `boota` boots the non-empty v0 ramdisk;
-> sealed boot = `/` overlay over ro `userdata` (`/mnt/.tc8/lower` ext4 ro);
-> a file written to `/etc` in sealed mode vanished on reboot; `tc8-rw` →
-> maintenance (direct-rw ext4, banner) → `apt install sl` → `tc8-ro` →
-> resealed, and the package persisted through the sealed boots. Persistent
-> `/root` marker survived throughout (including, separately, a full
-> userdata reflash). All services (gadget, MTP, persist-root, kiosk) active
-> in both modes. Original checklist below for regression reference.
-
-Boot plumbing (the one truly new mechanism — **verify first**):
+Boot plumbing:
 
 1. Flash new `boot.img` (+`vbmeta.img`) only, keep existing rootfs: serial
    shows `boota` reporting a non-zero ramdisk (expect the
    `ramdisk overlap detected → redirect` line), kernel logs
    `Trying to unpack rootfs image as initramfs...`, then `tc8-init:` lines,
-   then normal systemd boot. **This is the go/no-go for the whole design**
-   (boota+booti passing a v0 ramdisk has never been exercised on TC8).
+   then normal systemd boot.
 2. `tc8-mode` / `findmnt /` → `overlay`; `grep tc8-overlay /proc/mounts`;
    layers visible at `/mnt/.tc8/{lower,rw}`.
 
@@ -201,7 +190,7 @@ Sealed-mode semantics:
    no `/var/log/journal`.
 6. Wizard "Reconfigure" (cache blob): consumed on the next boot — the
    initramfs applies it to the real rootfs pre-seal and zeroes the blob
-   header; `KIOSK_URL` sticks across sealed reboots because it now lives
+   header; `KIOSK_URL` sticks across sealed reboots because it lives
    in the real filesystem.
 7. `date` sane on boot before NTP (fake-hwclock via facres); advance clock,
    clean reboot, still sane.

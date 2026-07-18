@@ -8,7 +8,7 @@ CRC32s validate.
 
 ## Files
 - `gpt-primary.bin` / `gpt-backup.bin` — the canonical GPT (LBA 0..33 / last 33),
-  captured from a known-good TC8 (`test-tabbbb`).
+  captured from a known-good TC8.
 - `make-gpt-restore.py` — builds `tc8-gpt-restore.simg` from those.
 - `tc8-gpt-restore.simg` — the artifact the provisioner flashes (34 KB on-wire).
 
@@ -33,7 +33,7 @@ the 4 MiB env. Writing it only rewrites the partition table; nothing else change
 1. **Detect** (no serial): `getvar partition-size:userdata` / `boot_a` — a nuked
    table makes these FAIL. (See provisioner `flow/partitions.ts`.)
 2. **Restore**: define a whole-disk raw target at runtime
-   (`fastboot_raw_partition_gpt = 0x0 0x1d1e000`, via `UCmd setenv`) → `flash gpt
+   (`fastboot_raw_partition_gpt = 0x0 0x1d1f000`, via `UCmd setenv`) → `flash gpt
    tc8-gpt-restore.simg` → `mmc rescan` → re-verify.
 3. Then the normal OS install proceeds. Configure instead **refuses** if the table
    is borked (it won't touch a damaged filesystem).
@@ -45,5 +45,4 @@ so the wizard fetches it through the Cloudflare proxy at
 but shipping it per-release keeps the fetch path uniform.
 
 > Note: the captured GPT carries one unit's disk/partition GUIDs, so all restored
-> units share them. Harmless for single-disk operation; regenerate per-unit later
-> if uniqueness ever matters.
+> units share them. Harmless for single-disk operation.

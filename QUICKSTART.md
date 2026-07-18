@@ -68,7 +68,7 @@ Open the
 in Chrome or Edge and:
 
 1. **Connect device…** — pick the TC8 in the chooser.
-2. **Enroll** (one-time) — lands our stage-2 U-Boot in the eMMC `boot1`
+2. **Enroll** (one-time) — lands the stage-2 U-Boot in the eMMC `boot1`
    hardware partition and sets the chainload `bootcmd` + `saveenv`. From now
    on the panel loads stage-2 on every boot and the serial cable is no longer
    needed.

@@ -8,7 +8,10 @@ checkout. **One repo, two targets** — `--target=` picks the board:
   `rootfs.simg` for `userdata`.
 - `--target=c60` — the Trio C60: `booti` image set (`boot.img` with the
   DTB in its `second` area, Android-DTBO `dtbo.img`, **signed** vbmeta) +
-  `rootfs.img.zst` for `system_a` (hard 1.6 GiB budget).
+  `rootfs.img.zst` for `system_a`. The 1.75 GiB `system_a` partition is
+  the hard ceiling; the default image size is a headroom-safe 1.6 GiB,
+  and the builder refuses to emit an oversized image rather than
+  truncate it.
 
 A target is `targets/<t>/target.env` (board facts: DTB, partitions, boot
 geometry) + `targets/<t>/boot.sh` (the boot-image recipe) — the kernel is
@@ -77,8 +80,8 @@ cat ~/.ssh/id_ed25519.pub > authorized_keys     # gitignored
 # or: export TC8_SSH_PUBKEY=~/.ssh/id_ed25519.pub
 ```
 
-The device generates its own SSH host privkey on first boot — host keys
-are never committed.
+SSH host keys are generated at image build time (`ssh-keygen -A` in the
+build chroot) and are never committed.
 
 ## 4. Build
 
@@ -100,6 +103,7 @@ out/emmc/rootfs.simg            # Android sparse rootfs                         
 out/emmc/Image                  # raw kernel (netboot)
 out/emmc/imx8mm-tc8.dtb         # raw device tree (netboot)
 out/emmc/rootfs.img             # 6.4 GiB ext4, sized to the userdata partition (sparse on disk; ~2 GiB used)
+out/emmc/initramfs.cpio.gz      # busybox ro-root initramfs (emitted by default; embedded in boot.img)
 out/emmc/version.env            # TC8_FW_VERSION, build host, etc.
 out/emmc/SHA256SUMS
 out/emmc/kernel/Image           # intermediate (= out/emmc/Image)
@@ -126,7 +130,8 @@ sparse `rootfs.simg` → `userdata`, `set_active`, and reboots with `boota`.
 
 ```
 
-Tweaking `kernel/tc8.config` doesn't trigger a rootfs rebuild.
+Tweaking `kernel/config.base` or `kernel/targets/tc8.frag` doesn't
+trigger a rootfs rebuild.
 
 ## Repo layout
 
@@ -135,7 +140,7 @@ build.sh                 top-level pipeline: kernel + slot images + rootfs + SHA
 bootstrap.sh             one-shot: fetches vanilla linux-6.6
 tools/                   mkbootimg.py, mkdtboimg.py, mksparse.py, avbtool (slot-image + AVB)
 profiles/                emmc.env, nfs.env — per-target kernel cmdline
-kernel/                  kernel/build.sh + tc8.config (config fragment)
+kernel/                  kernel/build.sh + config.base + targets/<t>.frag (shared config + per-target fragment)
 kernel-patches/          submodule: tc8 patch series for vanilla 6.6
 rootfs/                  submodule: Debian rootfs builder + chroot-setup
 images/                  rootfs.sh (plain ext4)
@@ -156,7 +161,7 @@ cap on this device. CI fails the release build if it grows past that.
 the kernel refuses to mount an ext4 bigger than its partition, so `build.sh`
 errors out rather than emit an image that flashes but never boots.
 
-If the Image grows past the cap, add SoC families to `tc8.config`'s
+If the Image grows past the cap, add SoC families to `kernel/config.base`'s
 `# CONFIG_ARCH_… is not set` block to drop them.
 
 ## What's forced built-in
@@ -229,9 +234,9 @@ If you run the build with `pct exec`, redirect the build to a logfile
 and `tail -f` it:
 
 ```bash
-pct exec 200 -- bash -c '
+pct exec <ctid> -- bash -c '
     /usr/local/sbin/tc8-fix-devs
-    cd /root/tc8-build
+    cd poly-firmware-build
     ./build.sh --profile=emmc 2>&1 | tee /root/build.log
 '
 ```
@@ -242,13 +247,13 @@ A native-host build is otherwise straightforward and recommended.
 
 Not to be confused with `--profile=emmc|nfs` (the *build target*): an
 **OS profile** is the device's role — what it boots into. Each profile is
-a metapackage `poly-tc8-profile-<name>` from the
-[OpenPolycom apt archive](https://github.com/Polycom-Open-Firmware/apt),
+the board-agnostic metapackage `poly-app-<name>` from the
+[OpenPolycom apt archive](https://github.com/Polycom-Open-Firmware/apt)
+(the per-board `poly-<device>-profile-<name>` is the fallback),
 installed into an isolated copy of the shared debootstrap base and packed
 as `rootfs-<name>.{img,simg}` (`TC8_OS_PROFILES` lands in `version.env`,
 `TC8_PROFILE` in the image's `/etc/tc8-version`). The default profile is
 `kiosk`; plain `rootfs.{img,simg}` always alias it so existing tooling and
 the provisioner keep working. The special profile `bare` is the untouched
-base. Full architecture, wizard integration, and roadmap:
-`polycom_dev/PROFILES-PLAN.md`; developer cookbook (creating profiles/apps):
-[packages/DEVELOPING.md](https://github.com/Polycom-Open-Firmware/packages/blob/main/DEVELOPING.md).
+base. Developer cookbook (creating profiles/apps): `DEVELOPING.md` in the
+[`packages` repo](https://github.com/Polycom-Open-Firmware/packages/blob/main/DEVELOPING.md).

@@ -12,8 +12,8 @@ The image bakes several ways in:
   - **CDC ACM** → `/dev/ttyACM0` on Linux, "USB Serial Device" on Windows.
     systemd-getty spawns a login prompt automatically.
   - **CDC NCM** → `usb0` USB-Ethernet on the host. Panel runs DHCP on
-    `10.55.0.1/24` and leases the host `.2`–`.5`. ssh to `10.55.0.1` the
-    moment the link comes up.
+    `10.55.0.1/24` and leases the host `10.55.0.2` (a single-lease
+    pool). ssh to `10.55.0.1` the moment the link comes up.
   - **MTP / Portable Device** — the persistent `/root` ("Root home
     (persistent)") exposed by uMTP-Responder. Drag-and-drop in any native
     file manager; files land on the durable partition (see below).
@@ -63,8 +63,8 @@ while sealed — the reboot flow exists because that's the only dpkg-safe
 way. Full design and failure modes: [docs/RO-ROOT.md](docs/RO-ROOT.md).
 
 Besides Debian's archive, every image trusts the
-**OpenPolycom package archive** out of the box (`op-*` packages: device
-profiles, first-party apps, and eventually a Chromium built for this CPU) —
+**OpenPolycom package archive** out of the box (`poly-*` packages: device
+profiles and first-party apps) —
 `apt install poly-tc8-profile-kiosk` works in maintenance mode with no extra
 setup. Archive conventions:
 [Polycom-Open-Firmware/apt](https://github.com/Polycom-Open-Firmware/apt).

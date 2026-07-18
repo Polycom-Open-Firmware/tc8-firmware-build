@@ -30,7 +30,7 @@ What you get on the panel:
 - Goodix GT9110 multi-touch (`/dev/input/event0`)
 - TAS5751M class-D audio amplifier on SAI1 (`tas5751-audio` ALSA card; the
   volume range is hard-capped in the kernel so **100% is safe** — full
-  scale used to brown out the panel on loud content)
+  scale browns out the panel on loud content)
 - RTL8363NB-VB DSA switch + FEC ethernet (`lan` interface, 1 Gbps
   full-duplex) using the panel's **factory MAC address**, recovered from
   the stock bootloader environment — stable DHCP leases out of the box
@@ -53,17 +53,16 @@ default a bundled touch-tester; point `KIOSK_URL` at any page you like
 
 The round conference phone from the same family — touchscreen, a
 mic array, a proper speaker, Wi-Fi/BT, and HDMI-in. Same SoC
-as the TC8, so it runs the same Debian stack. Hardware bring-up is done
-(display, touch, audio in/out, LEDs, Wi-Fi/BT, cameras) and the build is
-fully converged here: `--target=c60` produces the complete `booti` image
-set from this repo.
+as the TC8, so it runs the same Debian stack. Hardware support covers
+display, touch, audio in/out, LEDs, and Wi-Fi/BT, and `--target=c60`
+produces the complete `booti` image set from this repo.
 
-Honest status: the converged C60 images are **build-verified but not yet
-boot-verified on hardware from this tree** (the boot recipe is a faithful
-port of the packer that boots the device). Its unlock path is different
-from the TC8's — the C60 loads our U-Boot over USB (i.MX Serial Download
-Protocol, driven by the same browser wizard via WebHID, no serial adapter)
-— and its install overwrites the `system_a` slot rather than `userdata`.
+**Release gate:** C60 images from this tree require boot verification on
+hardware before a release ships. The C60's unlock path is different
+from the TC8's — the C60 loads the project's U-Boot over USB (i.MX Serial
+Download Protocol, driven by the same browser wizard via WebHID, no serial
+adapter) — and its install overwrites the `system_a` slot rather than
+`userdata`.
 
 ## How it's installed and managed
 
@@ -73,7 +72,7 @@ install, no drivers, no command line:
 
 - **Unlock** — first time on a fresh unit. TC8: hook up a serial adapter
   once, then it goes back in the drawer. C60: no adapter at all — the
-  wizard loads our bootloader over USB (WebHID SDP).
+  wizard loads the project's bootloader over USB (WebHID SDP).
 - **Install the OS** — pick a release, click flash. On the TC8 you can
   keep stock Android in the spare slot as a way back.
 - **Choose an application** — what the device runs at boot: web **kiosk**
@@ -92,15 +91,16 @@ the boot window. The wizard itself is open source:
 [Polycom-Open-Firmware/provisioner](https://github.com/Polycom-Open-Firmware/provisioner).
 
 **How it works (TC8)** — the TC8 will only start bootloader code signed by
-Polycom; that check is burned into the chip and can't be changed. So we
-don't fight it: the factory bootloader runs first, exactly as shipped, and
-then hands off to our own bootloader, which lives in a spare region of the
-panel's built-in storage. From there, ours starts Debian the same way the
-panel used to start Android — to the hardware, nothing unusual is
-happening. The factory bootloader is never overwritten, so a bad flash
-can't permanently brick the panel. [FLASHING.md](FLASHING.md) has the full
-mechanics. (The C60 is HAB-open — our U-Boot is SDP-loaded and then
-persisted; the wizard's C60 flow documents that path.)
+Polycom; that check is burned into the chip and can't be changed. The
+install works with it rather than against it: the factory bootloader runs
+first, exactly as shipped, and then hands off to the project's bootloader,
+which lives in a spare region of the panel's built-in storage. From there,
+the stage-2 bootloader starts Debian the same way the panel used to start
+Android — to the hardware, nothing unusual is happening. The factory
+bootloader is never overwritten, so a bad flash can't permanently brick
+the panel. [FLASHING.md](FLASHING.md) has the full mechanics. (The C60 is
+HAB-open — the project's U-Boot is SDP-loaded and then persisted; the
+wizard's C60 flow documents that path.)
 
 ## Quick start
 
@@ -123,8 +123,8 @@ flags.
 
 ## Documentation
 
-Most pages were written on (and verified against) the TC8; each states its
-scope up top.
+Pages apply to the TC8 unless marked otherwise; each states its scope up
+top.
 
 **Install and use**
 

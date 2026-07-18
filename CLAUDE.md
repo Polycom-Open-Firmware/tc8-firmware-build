@@ -13,9 +13,9 @@ Shared vs per-target: the kernel is `kernel/config.base` + a per-target
 `kernel/targets/<t>.frag`, patched from `kernel-patches/patches/<t>/`; each
 target's facts live in `targets/<t>/target.env` and its boot recipe in
 `targets/<t>/boot.sh`. The composer (`build.sh --target`) dispatches on
-these — clean per-target seams, not a forced abstraction.
+these — clean per-target seams.
 
-**Boot models (why they differ, kept separate on purpose):**
+**Boot models (why they differ):**
 - **TC8 / boota** — `boot.img` (kernel + busybox ro-root initramfs + Debian
   cmdline `root=PARTLABEL=userdata`), `dtbo.img` (DTB in an Android DTBO
   container), `vbmeta.img` (hash descriptors, **`--algorithm NONE`** —
@@ -27,7 +27,7 @@ these — clean per-target seams, not a forced abstraction.
   fused-verified but stock u-boot needs a structurally-signed vbmeta with
   the dtbo descriptor).
 
-Install is the browser provisioner (`../provisioner/`): enroll → flashos.
+Install is the browser provisioner (the `provisioner` repo): enroll → flashos.
 
 ## Build
 ```sh
@@ -38,7 +38,7 @@ sudo apt install -y git build-essential bison flex bc kmod \
 sudo ./build.sh --target=tc8 --profile=emmc    # TC8: out/emmc/{Image,imx8mm-tc8.dtb,boot.img,dtbo.img,vbmeta.img,rootfs.simg,…}
 sudo ./build.sh --target=c60 --profile=emmc    # C60: out/emmc/{Image,imx8mm-kepler-proto1.dtb,boot.img,dtbo.img,vbmeta.img,rootfs.img.zst,…}
 #   --skip-rootfs / --skip-kernel / --rootfs-size=N   (iteration)
-#   --os-profile=kiosk,dev   device-role rootfs variants (see PROFILES-PLAN.md)
+#   --os-profile=kiosk,dev   device-role rootfs variants (see BUILDING.md)
 ```
 `--target` defaults to `tc8`. The Debian rootfs builder is the `rootfs/`
 submodule (poly-rootfs); it takes `--device=<t>` so the right
@@ -48,15 +48,13 @@ submodule (poly-rootfs); it takes `--device=<t>` so the right
 - **TC8 kernel must stay < 32 MiB** — stock u-boot 2018.03 `BOOTM_LEN` cap;
   CI enforces. (C60 uses its own u-boot; not bound by this.)
 - **Never hand-edit `linux-6.6/`; never disable a `.patch`** to dodge an
-  apply conflict — regen from a clean tree (2026-05-19 postmortem: a
-  `.patch.disabled` shipped a no-display kernel). `kernel/build.sh` uses
-  reset-then-apply so re-runs are idempotent.
-- The **C60 boot recipe is a faithful port** of the proven c60 packer but is
-  not yet silicon-verified from this converged tree — flag before shipping a
-  C60 release.
+  apply conflict — regenerate patches from a clean tree; a disabled patch
+  ships a silently broken kernel. `kernel/build.sh` uses reset-then-apply
+  so re-runs are idempotent.
+- **C60 release gate:** C60 releases require boot verification on hardware
+  from this tree.
 
 Related: **[FLASHING.md](FLASHING.md)** (partitions, stage-2 chainload),
 **[QUICKSTART.md](QUICKSTART.md)** (manual recipe), **[NETBOOT.md](NETBOOT.md)**
 (TFTP/NFS), **[CONFIG-PARTITION.md](CONFIG-PARTITION.md)** (the `cache`-blob
 config contract the wizard writes). Deep detail → **[BUILDING.md](BUILDING.md)**.
-Convergence plan / milestones → `PROFILES-PLAN.md` in the polycom_dev workspace (not in this repo).

@@ -1,6 +1,6 @@
 # TC8 cache partition — autoconfigure + bootloader updates (v1)
 
-> **Scope: both targets.** The wizard writes this blob on the TC8 and the C60 (the C60 uses a raw-LBA `cache` write); `apply-config` in the shared rootfs reads it on both. Key names keep the historical `TC8` prefixes.
+> **Scope: both targets.** The wizard writes this blob on the TC8 and the C60 (the C60 uses a raw-LBA `cache` write); `apply-config` in the shared rootfs reads it on both. Key names keep the `TC8` prefixes for compatibility.
 
 How the provisioning wizard pushes device configuration and stage-2
 bootloader updates to a TC8 over fastboot — no serial, no bootloader
@@ -15,7 +15,7 @@ contract: the Linux half is implemented in this repo, and the wizard half
 
 ## Why `cache`
 - It's in the stock Android GPT — 1 GiB ext4 (was Android `/cache`), unused
-  by our Debian. (Confirmed on a live v0.4.x unit: `/dev/mmcblk2p7`, clean, 95% free.)
+  by the Debian image. (Stock GPT entry 7, `/dev/mmcblk2p7`.)
 - `fastboot flash cache <blob>` works with the existing stage-2 fastboot — no
   bootloader rebuild, no re-enroll.
 - `cache` is not in the AVB-verified chain (`boot`/`dtbo`/`vbmeta`), so nothing
@@ -101,7 +101,7 @@ CLI equivalent (for testing): `tools/mkconfigblob.py cache.img --bootloader tc8-
 
 ## Config keys (the autoconfigure schema)
 Status: **✅ implemented** in the v1 reader (`rootfs/etc/tc8-config/apply-config.sh`);
-**▢ planned** (reserved key — document + implement incrementally).
+**▢ reserved**.
 
 ### Identity
 | key | st | effect | example |
@@ -194,7 +194,7 @@ default target accordingly and records `/etc/tc8-profile`. Baked role packages
 ## Bootloader update — how it lands
 
 - The stage-2 lives in the eMMC `boot1` hardware partition. A *running*
-  Debian can rewrite boot1 (we do); a fastboot session generally can't
+  Debian can rewrite boot1 (the bootloader updater does); a fastboot session generally can't
   target it cleanly. So the wizard hands the image to the OS through `cache`,
   and the OS does the write. The wizard never writes `boot1` directly.
 - On device, `tc8-update-bootloader.service` runs
@@ -220,9 +220,9 @@ default target accordingly and records `/etc/tc8-profile`. Baked role packages
 ## Security
 The blob is **plaintext at rest** on `cache` (any root user on the device can read
 it — passwords, keys). That's usually acceptable for a trusted-fleet config, and
-it travels over local USB fastboot, not the network. If a deployment needs
-secrets protected at rest, that's a v2 item (encrypt the payload to a device/fleet
-key). Don't put anything in here you wouldn't accept on the device's disk.
+it travels over local USB fastboot, not the network. Protecting secrets at
+rest (encrypting the payload to a device/fleet key) is out of scope for
+this format. Don't put anything in here you wouldn't accept on the device's disk.
 
 ## Linux side (implemented here)
 - `rootfs/etc/tc8-config/apply-config.sh` — config reader (POSIX sh, busybox/coreutils only).
