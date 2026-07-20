@@ -149,7 +149,7 @@ top.
 Everything the devices run is a plain Debian package from the project's own
 apt archive — adding an app is a metapackage away.
 
-- **[packages](https://github.com/Polycom-Open-Firmware/packages)** `DEVELOPING.md` — the add-an-app/profile cookbook: metapackage → archive → image variant → wizard entry
+- **[packages](https://github.com/Polycom-Open-Firmware/packages)** `apps/` — what each application does and its config options; `DEVELOPING.md` — the add-an-app/profile cookbook: metapackage → archive → image variant → wizard entry
 - **[apt](https://github.com/Polycom-Open-Firmware/apt)** — the package archive: client setup, publishing pipeline
 - **[provisioner](https://github.com/Polycom-Open-Firmware/provisioner)** — the wizard: architecture, flavors, hosting
 
